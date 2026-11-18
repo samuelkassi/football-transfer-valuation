@@ -1,17 +1,23 @@
 # Data
 
-No data is committed. Both sources are free Kaggle datasets, but their
-contents are scraped from Transfermarkt and FBref (whose advanced stats are
-Opta data), so this repo ships download instructions only.
+The raw source files are not committed: download them from Kaggle (below).
+`data/sample/transfers_sample.csv` is a 200-row random sample of the final
+modelling table (seed 42, all seasons), so the columns and values can be
+inspected without running the pipeline.
 
-## Sources
+## Sources and licences
 
-| Source | Kaggle dataset | Files used |
-|---|---|---|
-| Transfermarkt | [davidcariboo/player-scores](https://www.kaggle.com/datasets/davidcariboo/player-scores) (built by [dcaribou/transfermarkt-datasets](https://github.com/dcaribou/transfermarkt-datasets)) | `transfers.csv`, `player_valuations.csv`, `players.csv` |
-| FBref + FIFA | [jacksonjohannessen/fifa-and-irl-soccer-player-data](https://www.kaggle.com/datasets/jacksonjohannessen/fifa-and-irl-soccer-player-data) | `fifa_fbref_merged.csv` |
+| Source | Kaggle dataset | Licence | Files used |
+|---|---|---|---|
+| Transfermarkt | [davidcariboo/player-scores](https://www.kaggle.com/datasets/davidcariboo/player-scores) (built by [dcaribou/transfermarkt-datasets](https://github.com/dcaribou/transfermarkt-datasets)) | CC0: Public Domain | `transfers.csv`, `player_valuations.csv`, `players.csv` |
+| FBref + FIFA | [jacksonjohannessen/fifa-and-irl-soccer-player-data](https://www.kaggle.com/datasets/jacksonjohannessen/fifa-and-irl-soccer-player-data) | MIT | `fifa_fbref_merged.csv` |
 
-Downloaded April 2026. Check each dataset's licence on its Kaggle page before use.
+Downloaded April 2026. Attribution: market values and transfers from
+Transfermarkt via the player-scores dataset; player statistics from FBref via
+the dataset above. A dataset uploader can only license what they own: the
+advanced statistics (such as xG) originate from Opta and the FIFA ratings from
+EA, which is why the full raw files are not redistributed here. The sample
+contains no FIFA columns.
 
 ## Layout
 

@@ -120,5 +120,7 @@ publishing it found these problems, each fixed in its own commit and rerun:
 
 ## Data
 
-Not included: see [data/README.md](data/README.md) for the two Kaggle sources,
-the snapshot hashes and the expected layout.
+The raw files are not included: see [data/README.md](data/README.md) for the
+two Kaggle sources (CC0 and MIT), the snapshot hashes and the expected layout.
+A 200-row sample of the final modelling table is in
+[data/sample/](data/sample/transfers_sample.csv).

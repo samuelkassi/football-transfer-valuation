@@ -29,3 +29,7 @@ venv/
 Thumbs.db
 .vscode/
 .idea/
+
+# small real sample of the final modelling table (see data/README.md)
+!data/sample/
+!data/sample/*.csv
