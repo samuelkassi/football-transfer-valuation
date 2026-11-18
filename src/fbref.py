@@ -1,5 +1,6 @@
 from pathlib import Path
 import re
+import numpy as np
 import pandas as pd
 
 # directories which store raw and intermediate data
@@ -54,6 +55,26 @@ LEAGUE_CODE_TO_COMP = {
     "POR-Primeira Liga":      "Primeira Liga",
     "BEL-Jupiler Pro League": "Jupiler Pro League",
     "TUR-Super Lig":          "Super Lig",
+}
+
+# Most league matches one team can play in a season, over 2017-18 to 2024-25,
+# including end-of-season play-offs that FBref counts. Upper bounds on purpose:
+# a row above them cannot be a single player.
+#   Belgium: 30 to 34 regular + up to 10 play-off games (+1 for the odd decider)
+#   Turkey:  21 clubs in 2020-21 -> 40 games
+#   MLS:     34 regular season + up to 6 play-off games
+#   Others:  regular season + relegation / European play-off or tie-break games
+LEAGUE_MAX_MATCHES = {
+    "Premier League":     38,
+    "La Liga":            38,
+    "Serie A":            39,
+    "Ligue 1":            40,
+    "Bundesliga":         36,
+    "Eredivisie":         38,
+    "Primeira Liga":      36,
+    "Jupiler Pro League": 41,
+    "Super Lig":          40,
+    "MLS":                40,
 }
 
 # Per-90 columns in the source -> pipeline "total" column names we synthesise
@@ -171,6 +192,24 @@ def main():
     if key_cols:
         df = df.sort_values("minutes", ascending=False, na_position="last")
         df = df.drop_duplicates(subset=key_cols, keep="first")
+
+    #     The source repeats an FBref row once per FIFA identity it was matched
+    #     to, so this dedupe also removes the FIFA-induced duplicates.
+
+    # 11) inf -> NaN (per-90 values divided by zero 90s in the source)
+    num_cols = df.select_dtypes("number").columns
+    n_inf = int(np.isinf(df[num_cols]).sum().sum())
+    df[num_cols] = df[num_cols].replace([np.inf, -np.inf], np.nan)
+    print(f"Replaced {n_inf} inf values with NaN")
+
+    # 12) drop physically impossible rows. The source keeps one row per
+    #     (name, season) across all leagues, so different players who share a
+    #     short name (e.g. "Fernando") are summed into one row. Those rows show
+    #     more matches or minutes than one team plays in a league season.
+    cap = df["comp"].map(LEAGUE_MAX_MATCHES)
+    impossible = (df["matches_played"] > cap) | (df["minutes"] > cap * 90)
+    print(f"Dropped {int(impossible.sum())} rows above the league's max matches/minutes")
+    df = df[~impossible].copy()
 
     df.to_parquet(OUT_PATH, index=False)
     print(f"Saved: {OUT_PATH}  shape={df.shape}")

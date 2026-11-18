@@ -297,19 +297,49 @@ def main():
     # join FBref season before transfer
     tm["fbref_season"] = tm["season_end_year"] - 1  # previous season stats
 
-    merged = tm.merge(
-        fbref,
+    # Join on cleaned name + season + birth year. A name alone is not an
+    # identity: several Transfermarkt players share short names ("Fernando",
+    # "Marko Ilic"), so a name+season join attaches one player's stats to
+    # another player's transfer. FBref `born` must be within 1 year of the
+    # Transfermarkt birth year, and a match is dropped as ambiguous when one
+    # FBref row would serve more than one Transfermarkt player.
+    tm = tm.reset_index(drop=True)
+    tm["transfer_row_id"] = np.arange(len(tm))
+    tm["birth_year"] = tm[dob_col].dt.year
+
+    candidates = tm.merge(
+        fbref.assign(fbref_row_id=np.arange(len(fbref))),
         left_on=["player_clean", "fbref_season"],
         right_on=["player_clean", "season_end_year"],
-        how="left",
+        how="inner",
         suffixes=("", "_fb"),
-        indicator=True,
     )
+    n_name_matches = candidates["transfer_row_id"].nunique()
+    born_ok = (candidates["born"] - candidates["birth_year"]).abs() <= 1
+    candidates = candidates[born_ok].copy()
+    n_born_matches = candidates["transfer_row_id"].nunique()
 
+    ids_per_fbref_row = candidates.groupby("fbref_row_id")["player_id"].transform("nunique")
+    rows_per_transfer = candidates.groupby("transfer_row_id")["fbref_row_id"].transform("nunique")
+    ambiguous = (ids_per_fbref_row > 1) | (rows_per_transfer > 1)
+    candidates = candidates[~ambiguous].copy()
 
-    # join match rate
-    match_rate = (merged["_merge"] == "both").mean()
-    print(f"FBref join match rate: {match_rate:.2%}")
+    unmatched = tm[~tm["transfer_row_id"].isin(candidates["transfer_row_id"])]
+    merged = pd.concat(
+        [candidates.assign(_merge="both"), unmatched.assign(_merge="left_only")],
+        ignore_index=True,
+    ).sort_values("transfer_row_id")
+
+    # join match rate. Denominator: every Transfermarkt transfer in the
+    # 2018-2025 seasons (one row per transfer). Numerator: transfers with a
+    # verified (name + season + birth year, unambiguous) FBref row.
+    n_transfers = len(tm)
+    n_matched = int((merged["_merge"] == "both").sum())
+    print(f"Transfers in window: {n_transfers}")
+    print(f"  name+season match:            {n_name_matches} ({n_name_matches / n_transfers:.2%})")
+    print(f"  + birth year within 1 year:   {n_born_matches} ({n_born_matches / n_transfers:.2%})")
+    print(f"  - ambiguous, dropped:         {int(ambiguous.sum())} candidate rows")
+    print(f"FBref join match rate: {n_matched / n_transfers:.2%} ({n_matched} / {n_transfers})")
 
     # join match rate by season
     by_season = (
@@ -686,6 +716,7 @@ def main():
     
     print(f"\nSaved: {OUT_PATH}")
     print(f"Rows: {final_df.shape[0]}, Columns: {final_df.shape[1]}")
+    print(f"Model rows as share of transfers in window: {final_df.shape[0] / n_transfers:.2%}")
     print("\nRows by transfer season_end_year:")
     print(final_df.groupby("season_end_year").size().to_string())
 
