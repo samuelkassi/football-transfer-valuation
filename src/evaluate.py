@@ -150,6 +150,49 @@ def shap_outputs(bundle: dict, test_df: pd.DataFrame) -> pd.DataFrame:
     return grouped.rename("mean_abs_shap").reset_index().rename(columns={"index": "feature"})
 
 
+BOOTSTRAP_RESAMPLES = 1000
+BOOTSTRAP_SEED = 42
+
+
+def r2_from_sums(y: np.ndarray, p: np.ndarray) -> np.ndarray:
+    """Row-wise R squared for 2-D arrays (one bootstrap resample per row)."""
+    ss_res = ((y - p) ** 2).sum(axis=1)
+    ss_tot = ((y - y.mean(axis=1, keepdims=True)) ** 2).sum(axis=1)
+    return 1 - ss_res / ss_tot
+
+
+def bootstrap_r2_differences(y: np.ndarray, preds: dict, pairs: list,
+                             n: int = BOOTSTRAP_RESAMPLES, seed: int = BOOTSTRAP_SEED) -> pd.DataFrame:
+    """Paired bootstrap of test R squared differences.
+
+    Each resample draws len(y) test transfers with replacement; both models in
+    a pair are scored on the same resample, so the interval is for the
+    difference itself. 95% percentile intervals.
+    """
+    idx = np.random.default_rng(seed).integers(0, len(y), size=(n, len(y)))
+    yb = y[idx]
+    rows = []
+    for label, a, b in pairs:
+        diff = r2_from_sums(yb, preds[a][idx]) - r2_from_sums(yb, preds[b][idx])
+        lo, hi = np.percentile(diff, [2.5, 97.5])
+        rows.append({
+            "comparison": label,
+            "observed": r2_score(y, preds[a]) - r2_score(y, preds[b]),
+            "ci_low": lo, "ci_high": hi,
+            "share_above_zero": float((diff > 0).mean()),
+            "excludes_zero": bool(lo > 0 or hi < 0),
+        })
+    return pd.DataFrame(rows)
+
+
+BOOTSTRAP_PAIRS = [
+    ("XGBoost modern minus Ridge modern", ("xgboost", "with_modern"), ("linear", "with_modern")),
+    ("Ridge: with modern minus traditional", ("linear", "with_modern"), ("linear", "traditional")),
+    ("Random Forest: with modern minus traditional", ("random_forest", "with_modern"), ("random_forest", "traditional")),
+    ("XGBoost: with modern minus traditional", ("xgboost", "with_modern"), ("xgboost", "traditional")),
+]
+
+
 def fmt_eur(v: float) -> str:
     return f"EUR {v / 1e6:.2f}m" if v >= 1e6 else f"EUR {v / 1e3:.0f}k"
 
@@ -199,6 +242,19 @@ def write_report() -> None:
         mask = pos == p
         vals = [r2_score(y[mask], preds[(m, fs)][mask]) for m, _ in MODELS for fs, _ in FEATURE_SETS]
         lines.append(f"| {p} | {int(mask.sum())} | " + " | ".join(f"{v:.3f}" for v in vals) + " |")
+
+    # bootstrap confidence intervals for the factorial comparisons
+    boot = bootstrap_r2_differences(y, preds, BOOTSTRAP_PAIRS)
+    lines += ["", "## Are the differences real? Bootstrap confidence intervals", "",
+              f"Paired bootstrap: {BOOTSTRAP_RESAMPLES:,} resamples of the {len(y):,} test transfers "
+              f"(seed {BOOTSTRAP_SEED}); both models in a comparison are scored on the same resample. "
+              "95% percentile intervals for the difference in test R squared.", "",
+              "| Comparison | Observed difference | 95% CI | Resamples above zero | Distinguishable from zero |",
+              "|---|---|---|---|---|"]
+    for _, r in boot.iterrows():
+        lines.append(f"| {r['comparison']} | {r['observed']:+.3f} | [{r['ci_low']:+.3f}, {r['ci_high']:+.3f}] | "
+                     f"{r['share_above_zero']:.1%} | {'Yes' if r['excludes_zero'] else 'No'} |")
+    print(boot.to_string(index=False))
 
     # SHAP
     shap_tbl = shap_outputs(bundles[("xgboost", "with_modern")], test_df)

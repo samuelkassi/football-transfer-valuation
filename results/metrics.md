@@ -32,6 +32,17 @@ Regenerate with `python -m src.train` (full pipeline) or `python -m src.evaluate
 | Midfield | 398 | 0.775 | 0.775 | 0.770 | 0.773 | 0.794 | 0.800 |
 | Attack | 451 | 0.840 | 0.839 | 0.818 | 0.810 | 0.831 | 0.838 |
 
+## Are the differences real? Bootstrap confidence intervals
+
+Paired bootstrap: 1,000 resamples of the 1,413 test transfers (seed 42); both models in a comparison are scored on the same resample. 95% percentile intervals for the difference in test R squared.
+
+| Comparison | Observed difference | 95% CI | Resamples above zero | Distinguishable from zero |
+|---|---|---|---|---|
+| XGBoost modern minus Ridge modern | +0.011 | [+0.001, +0.022] | 98.6% | Yes |
+| Ridge: with modern minus traditional | +0.005 | [+0.001, +0.008] | 99.9% | Yes |
+| Random Forest: with modern minus traditional | -0.001 | [-0.004, +0.002] | 31.6% | No |
+| XGBoost: with modern minus traditional | +0.008 | [+0.004, +0.012] | 100.0% | Yes |
+
 ## SHAP: XGBoost with modern metrics
 
 Mean absolute SHAP value on the test set, one-hot levels summed back to their source feature.

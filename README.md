@@ -26,6 +26,26 @@ Full metrics (MAE, RMSE, per position, SHAP) are in
 [results/metrics.md](results/metrics.md), and the effect of every fix is in
 [results/fix_log.md](results/fix_log.md).
 
+## What the factorial study shows
+
+95% confidence intervals from a paired bootstrap (1,000 resamples of the 2025
+test set, seed 42; details in [results/metrics.md](results/metrics.md)):
+
+| Difference in test R squared | Observed | 95% CI | Distinguishable from zero? |
+|---|---|---|---|
+| XGBoost minus Ridge (with modern) | +0.011 | +0.001 to +0.022 | Yes, but barely |
+| Modern metrics, Ridge | +0.005 | +0.001 to +0.008 | Yes |
+| Modern metrics, Random Forest | -0.001 | -0.004 to +0.002 | No |
+| Modern metrics, XGBoost | +0.008 | +0.004 to +0.012 | Yes |
+
+- **Model family:** XGBoost beats Ridge, but only by about 0.01, and the lower
+  end of the interval is almost zero. Once club strength is measured properly, a
+  scaled linear model gets most of the way.
+- **Modern metrics (xG and similar):** they add a small, real gain for Ridge
+  and XGBoost (under 0.01 R squared) and nothing measurable for Random Forest.
+- **Scope:** the intervals capture sampling variation in the 2025 test set only,
+  not variation from retraining or from choosing a different test season.
+
 ![Feature importance](results/feature_importance.png)
 
 ## Pipeline
