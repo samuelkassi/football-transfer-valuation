@@ -484,10 +484,20 @@ def main():
     print("✓ Creating position-based features...")
     
     # Mark position categories
-    merged["is_goalkeeper"] = merged["position"].str.upper().eq("GK").astype(int)
-    merged["is_defender"] = merged["position"].str.upper().eq("DF").astype(int)
-    merged["is_midfielder"] = merged["position"].str.upper().eq("MF").astype(int)
-    merged["is_forward"] = merged["position"].str.upper().eq("FW").astype(int)
+    # `position` comes from Transfermarkt players.csv, whose labels are
+    # "Goalkeeper", "Defender", "Midfield" and "Attack". The earlier checks
+    # for FBref-style codes ("GK", "DF", "MF", "FW") never matched, so every
+    # flag and every position x stat feature below was zero in every row.
+    merged["is_goalkeeper"] = merged["position"].eq("Goalkeeper").astype(int)
+    merged["is_defender"] = merged["position"].eq("Defender").astype(int)
+    merged["is_midfielder"] = merged["position"].eq("Midfield").astype(int)
+    merged["is_forward"] = merged["position"].eq("Attack").astype(int)
+    print(
+        "position flags: "
+        + ", ".join(f"{c}={int(merged[c].sum())}" for c in
+                    ["is_goalkeeper", "is_defender", "is_midfielder", "is_forward"])
+        + f" of {len(merged)} rows"
+    )
     
     # 7b. POSITION × STAT INTERACTIONS
     # Without these, xgboost has to spend splits learning that 50 clearances

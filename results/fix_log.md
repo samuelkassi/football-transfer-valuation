@@ -11,6 +11,7 @@ Every row is a full rerun of the pipeline from raw data after that fix.
 | 0. Original code, rebuilt from raw | 5,575 / 1,462 | 0.573 | 0.587 | 0.651 | 0.660 | 0.687 | 0.718 | | | |
 | 1. Add trivial baselines | 5,575 / 1,462 | 0.573 | 0.587 | 0.651 | 0.660 | 0.687 | 0.718 | -0.002 | 0.003 | 0.285 |
 | 2. Name + birth year join, drop impossible rows | 5,293 / 1,413 | 0.641 | 0.671 | 0.665 | 0.672 | 0.712 | 0.737 | -0.004 | 0.005 | 0.290 |
+| 3. Position flags mapped to Transfermarkt labels | 5,293 / 1,413 | 0.646 | 0.678 | 0.663 | 0.672 | 0.710 | 0.736 | -0.004 | 0.005 | 0.290 |
 
 ## Match rate
 
