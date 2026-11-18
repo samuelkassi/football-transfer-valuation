@@ -89,6 +89,66 @@ def build_nationality_group(series: pd.Series, top_k: int = 25) -> pd.Series:
     return s.where(s.isin(top), other="Other")
 
 
+CLUB_LEVEL_WINDOW_DAYS = 365
+
+
+def load_valuations_with_club(valuations_path: Path, club_history: pd.DataFrame) -> pd.DataFrame:
+    """Valuations tagged with the club the player was at on the valuation date.
+
+    `current_club_id` in player_valuations is the player's club at scrape time
+    (one value per player), not the club on the valuation date. The club on a
+    date is taken from the transfer history instead:
+      * after a recorded transfer: that transfer's `to_club_id`
+      * before the player's first recorded transfer: its `from_club_id`
+    Players with no recorded transfer are dropped: their valuation histories
+    span years (median 8.6) with no dated club, so the club is unknown.
+    """
+    vals = pd.read_parquet(valuations_path)
+    vals["date"] = pd.to_datetime(vals["date"], errors="coerce")
+    vals = vals.dropna(subset=["date", "market_value_eur"]).sort_values("date")
+
+    hist = club_history.dropna(subset=["transfer_date"]).sort_values("transfer_date")
+    tagged = pd.merge_asof(
+        vals,
+        hist[["player_id", "transfer_date", "to_club_id"]],
+        left_on="date", right_on="transfer_date", by="player_id", direction="backward",
+    )
+    first_from = hist.groupby("player_id")["from_club_id"].first()
+    club = tagged["to_club_id"].fillna(tagged["player_id"].map(first_from))
+    tagged["club_id"] = club
+    tagged = tagged.dropna(subset=["club_id"])
+    print(f"valuations with a dated club: {len(tagged)} / {len(vals)} ({len(tagged) / len(vals):.1%})")
+    return tagged[["player_id", "date", "market_value_eur", "club_id"]]
+
+
+def club_level_before(
+    vals: pd.DataFrame,
+    club_ids: pd.Series,
+    dates: pd.Series,
+    player_ids: pd.Series,
+    window_days: int = CLUB_LEVEL_WINDOW_DAYS,
+) -> np.ndarray:
+    """log1p(median valuation of the club's players in [date - window, date)),
+    excluding the player in question. NaN when no such valuation exists."""
+    groups = {
+        cid: (g["date"].to_numpy(), g["market_value_eur"].to_numpy(dtype=float), g["player_id"].to_numpy())
+        for cid, g in vals.groupby("club_id")
+    }
+    window = np.timedelta64(window_days, "D")
+    out = np.full(len(club_ids), np.nan)
+    for i, (cid, d, pid) in enumerate(zip(club_ids.to_numpy(), dates.to_numpy(), player_ids.to_numpy())):
+        g = groups.get(cid)
+        if g is None or pd.isna(d):
+            continue
+        dts, mv, pids = g
+        lo = np.searchsorted(dts, d - window, side="left")
+        hi = np.searchsorted(dts, d, side="left")  # strictly before the transfer date
+        sel = mv[lo:hi][pids[lo:hi] != pid]
+        if len(sel):
+            out[i] = np.log1p(np.median(sel))
+    return out
+
+
 def main():
     # loading intermediate data
     fbref = pd.read_parquet(INTER_DIR / "fbref_player_season_stats.parquet")
@@ -120,6 +180,11 @@ def main():
 
     pid_col_raw = first_existing(transfers, ["player_id", "id", "tm_player_id"])
     transfers = transfers.sort_values([pid_col_raw, transfer_date_col]).copy()
+
+    # full (unfiltered) move history, used to date each player's club spells
+    club_history = transfers[[pid_col_raw, transfer_date_col, "from_club_id", "to_club_id"]].rename(
+        columns={pid_col_raw: "player_id", transfer_date_col: "transfer_date"}
+    )
 
     # filtering out transfers outside fbref data range
     transfers = transfers[transfers[season_end_col].isin(SEASON_END_YEARS)].copy()
@@ -177,54 +242,21 @@ def main():
     # ------------------------------------------------------------------
     # Club-level features
     #
-    # Score each club by the median market value of its players in a given
-    # year (from tm_player_valuations.parquet -- 496k time-stamped records).
-    # A transfer then gets `from_club_level` / `to_club_level` = log1p(median
-    # MV of that club that year), with all-time median as fallback for sparse
-    # years. Captures "where is this player moving through" in a way that
-    # neither league one-hots nor raw stats do (Man City and Brighton both
-    # get `league=Premier League` but very different club levels).
+    # `from_club_level` / `to_club_level` = log1p(median market value of the
+    # club's players over the 12 months strictly before the transfer date,
+    # excluding the transferring player). Captures club strength that league
+    # one-hots miss (Man City and Brighton share `league=Premier League`).
     #
-    # Uses only club identity at inference time (user provides the club),
-    # so it's compatible with predicting theoretical-player values.
+    # Point in time: see load_valuations_with_club / club_level_before.
+    # The earlier version grouped valuations by `current_club_id`, which is
+    # each player's club at scrape time (constant per player), over the whole
+    # calendar year of the transfer with an all-time fallback, so a club's
+    # level included players it signed later, and the player's own value.
     # ------------------------------------------------------------------
-    print("Computing club-level tiers from player valuations...")
-    vals = pd.read_parquet(INTER_DIR / "tm_player_valuations.parquet")
-    vals["year"] = pd.to_datetime(vals["date"], errors="coerce").dt.year
-    vals = vals.dropna(subset=["current_club_id", "market_value_eur", "year"])
-
-    club_year_tier = (
-        vals.groupby(["current_club_id", "year"])["market_value_eur"]
-        .median()
-        .reset_index()
-        .rename(columns={"market_value_eur": "club_tier_yr"})
-    )
-    club_alltime_tier = (
-        vals.groupby("current_club_id")["market_value_eur"]
-        .median()
-        .reset_index()
-        .rename(columns={"market_value_eur": "club_tier_all"})
-    )
-
-    def _join_club_level(df: pd.DataFrame, club_col: str) -> pd.Series:
-        """Return log1p(per-year median, fall back all-time), same index as df."""
-        tmp = pd.DataFrame({
-            club_col: df[club_col].values,
-            "year": df["transfer_date"].dt.year.values,
-        })
-        tmp = tmp.merge(
-            club_year_tier.rename(columns={"current_club_id": club_col}),
-            on=[club_col, "year"], how="left",
-        )
-        tmp = tmp.merge(
-            club_alltime_tier.rename(columns={"current_club_id": club_col}),
-            on=club_col, how="left",
-        )
-        coalesced = tmp["club_tier_yr"].fillna(tmp["club_tier_all"])
-        return np.log1p(coalesced).values
-
-    tm["from_club_level"] = _join_club_level(tm, "from_club_id")
-    tm["to_club_level"]   = _join_club_level(tm, "to_club_id")
+    print("Computing point-in-time club levels from player valuations...")
+    vals = load_valuations_with_club(INTER_DIR / "tm_player_valuations.parquet", club_history)
+    tm["from_club_level"] = club_level_before(vals, tm["from_club_id"], tm["transfer_date"], tm["player_id"])
+    tm["to_club_level"] = club_level_before(vals, tm["to_club_id"], tm["transfer_date"], tm["player_id"])
     tm["club_level_delta"] = tm["to_club_level"] - tm["from_club_level"]
 
     # diagnostic

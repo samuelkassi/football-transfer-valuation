@@ -13,6 +13,7 @@ Every row is a full rerun of the pipeline from raw data after that fix.
 | 2. Name + birth year join, drop impossible rows | 5,293 / 1,413 | 0.641 | 0.671 | 0.665 | 0.672 | 0.712 | 0.737 | -0.004 | 0.005 | 0.290 |
 | 3. Position flags mapped to Transfermarkt labels | 5,293 / 1,413 | 0.646 | 0.678 | 0.663 | 0.672 | 0.710 | 0.736 | -0.004 | 0.005 | 0.290 |
 | 4. Contract feature removed | 5,293 / 1,413 | 0.650 | 0.681 | 0.662 | 0.674 | 0.715 | 0.742 | -0.004 | 0.005 | 0.290 |
+| 5. Point-in-time club levels | 5,293 / 1,413 | 0.800 | 0.805 | 0.787 | 0.786 | 0.808 | 0.816 | -0.004 | 0.005 | 0.290 |
 
 Contract ablation: step 3 is the run with the leaky contract feature
 (years until the next transfer, snapshot fallback for 2023+ transfers);
@@ -21,6 +22,30 @@ R squared (XGBoost modern 0.736 to 0.742). The leak did not inflate the
 2025 score because most 2025 transfers have no later transfer yet, so their
 values came from the snapshot fallback while training rows used the future
 transfer date: the feature meant different things in train and test.
+Checked on the model rows: 80.7% of training rows took the value from the
+next transfer, against 27.3% of 2025 test rows (72.7% snapshot or missing).
+
+Club levels (step 5): the old feature grouped valuations by
+`current_club_id`, which is each player's club at scrape time (one value per
+player across all 496,606 valuations), so a club's "level" in 2019 was built
+from its 2025 squad, with an all-time fallback. The new feature dates each
+valuation's club from the transfer history and takes the median over the
+12 months strictly before the transfer, excluding the transferring player.
+Coverage on model rows rose from 92.6% / 88.0% (from / to) to 99.0% / 97.8%.
+
+The large R squared gain was checked for leakage with Ridge (traditional):
+
+| Club level window | Ridge test R squared |
+|---|---|
+| 12 months ending the day before the transfer (as built) | 0.798 |
+| 12 months ending 90 days before the transfer | 0.800 |
+| 12 months ending 365 days before the transfer | 0.796 |
+| No club features | 0.639 |
+
+The score does not depend on valuations close to the transfer, so the gain
+comes from measuring club strength correctly, not from leaked information.
+Caveat: only valuations of players with at least one recorded transfer can be
+dated (160,636 of 496,606, 32.3%).
 
 ## Match rate
 
