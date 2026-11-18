@@ -2,6 +2,8 @@
 
 Test set: 2025 transfers. Train: all earlier seasons. Target: log1p(market value).
 Every row is a full rerun of the pipeline from raw data after that fix.
+Values are rounded to 3 decimals; where a run log printed 4 decimals ending in 5,
+the exact value from the saved model was used when available.
 
 ## Test R squared
 
@@ -13,9 +15,9 @@ Every row is a full rerun of the pipeline from raw data after that fix.
 | 2. Name + birth year join, drop impossible rows | 5,293 / 1,413 | 0.641 | 0.671 | 0.665 | 0.672 | 0.712 | 0.737 | -0.004 | 0.005 | 0.290 |
 | 3. Position flags mapped to Transfermarkt labels | 5,293 / 1,413 | 0.646 | 0.678 | 0.663 | 0.672 | 0.710 | 0.736 | -0.004 | 0.005 | 0.290 |
 | 4. Contract feature removed | 5,293 / 1,413 | 0.650 | 0.681 | 0.662 | 0.674 | 0.715 | 0.742 | -0.004 | 0.005 | 0.290 |
-| 5. Point-in-time club levels | 5,293 / 1,413 | 0.800 | 0.805 | 0.787 | 0.786 | 0.808 | 0.816 | -0.004 | 0.005 | 0.290 |
-| 6. Early stopping: untuned path fixed, tested | 5,293 / 1,413 | 0.800 | 0.805 | 0.787 | 0.786 | 0.808 | 0.816 | -0.004 | 0.005 | 0.290 |
-| 7. Ridge scaling verified by test (no code change) | 5,293 / 1,413 | 0.800 | 0.805 | 0.787 | 0.786 | 0.808 | 0.816 | -0.004 | 0.005 | 0.290 |
+| 5. Point-in-time club levels | 5,293 / 1,413 | 0.799 | 0.804 | 0.787 | 0.786 | 0.808 | 0.816 | -0.004 | 0.005 | 0.290 |
+| 6. Early stopping: untuned path fixed, tested | 5,293 / 1,413 | 0.799 | 0.804 | 0.787 | 0.786 | 0.808 | 0.816 | -0.004 | 0.005 | 0.290 |
+| 7. Ridge scaling verified by test (no code change) | 5,293 / 1,413 | 0.799 | 0.804 | 0.787 | 0.786 | 0.808 | 0.816 | -0.004 | 0.005 | 0.290 |
 
 ## Early stopping before / after (brief issue 1)
 

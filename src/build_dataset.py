@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
 import re
 import unicodedata
 
@@ -698,6 +699,16 @@ def main():
     print(f"\nSaved: {OUT_PATH}")
     print(f"Rows: {final_df.shape[0]}, Columns: {final_df.shape[1]}")
     print(f"Model rows as share of transfers in window: {final_df.shape[0] / n_transfers:.2%}")
+
+    # join statistics for the results report
+    stats = {
+        "transfers_in_window": int(n_transfers),
+        "name_season_matches": int(n_name_matches),
+        "birth_year_matches": int(n_born_matches),
+        "verified_matches": int(n_matched),
+        "model_rows": int(final_df.shape[0]),
+    }
+    (FINAL_DIR / "build_stats.json").write_text(json.dumps(stats, indent=2))
     print("\nRows by transfer season_end_year:")
     print(final_df.groupby("season_end_year").size().to_string())
 
