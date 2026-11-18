@@ -53,7 +53,6 @@ TRADITIONAL_STATS = [
     "age_at_transfer",
     "age_squared",
     "height_in_cm",
-    "contract_years_remaining",
     "position",
     "sub_position",
     "foot",

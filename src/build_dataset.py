@@ -118,15 +118,8 @@ def main():
     if contract_exp_col:
         ensure_datetime(players, contract_exp_col)
 
-    # Compute next_transfer_date from the FULL (unfiltered) transfer history
-    # so transfers near the end of our SEASON_END_YEARS window still see a
-    # following transfer if the player actually moved again later. Used
-    # downstream to fix the broken contract_years_remaining calc.
     pid_col_raw = first_existing(transfers, ["player_id", "id", "tm_player_id"])
     transfers = transfers.sort_values([pid_col_raw, transfer_date_col]).copy()
-    transfers["next_transfer_date"] = (
-        transfers.groupby(pid_col_raw)[transfer_date_col].shift(-1)
-    )
 
     # filtering out transfers outside fbref data range
     transfers = transfers[transfers[season_end_col].isin(SEASON_END_YEARS)].copy()
@@ -169,56 +162,17 @@ def main():
     tm["age_squared"] = tm["age_at_transfer"] ** 2
 
     # ------------------------------------------------------------------
-    # contract_years_remaining  (FIXED -- see bug note below)
+    # No contract feature.
     #
-    # Previously this was computed as (snapshot_contract_expiry - transfer_date).
-    # That's a semantic bug: players.csv contains a SINGLE snapshot of each
-    # player's current contract (scraped ~early 2025 -- contract_expiration_date
-    # values only live in 2023..2034). A 2018 transfer was being compared to
-    # the player's 2026 contract at a totally different club, producing garbage
-    # like "17 years remaining" at Dante's 2009 transfer.
-    #
-    # Fixed logic:
-    #   1) Preferred -- years until this player's NEXT transfer. That's the
-    #      actual stay length, which is a lower bound / reasonable proxy for
-    #      the contract they signed at the current transfer.
-    #   2) Fallback -- for the player's latest transfer (no subsequent move
-    #      recorded), use the snapshot calc, but only if the transfer_date is
-    #      recent enough (post-2023-01-01) for the snapshot contract to
-    #      plausibly be the one they signed here.
-    #   3) Else NaN -- signal explicitly missing.
-    #
-    # Cap at 6 years: rare to sign longer than that originally; long gaps
-    # between transfers reflect extensions, not the original deal.
+    # players.csv holds one snapshot of each player's current contract
+    # (scraped around 2025), so (snapshot expiry - transfer date) compares a
+    # 2018 transfer with a contract signed years later at another club. The
+    # replacement used "years until the player's next transfer", which is
+    # future information at transfer time, with the snapshot as fallback for
+    # 2023+ transfers, so train and test rows were built differently. No
+    # point-in-time contract data exists in these sources, so the feature is
+    # removed. The leaky version is commit d250c78 (see results/fix_log.md).
     # ------------------------------------------------------------------
-    SNAPSHOT_VALID_FROM = pd.Timestamp("2023-01-01")
-
-    if contract_exp_col and contract_exp_col in tm.columns:
-        # (1) primary signal: years until next transfer event
-        years_until_next = (tm["next_transfer_date"] - tm["transfer_date"]).dt.days / 365.25
-
-        # (2) fallback: snapshot-based, only for recent transfers
-        years_to_snapshot = (tm[contract_exp_col] - tm["transfer_date"]).dt.days / 365.25
-        snapshot_valid = tm["transfer_date"] >= SNAPSHOT_VALID_FROM
-
-        tm["contract_years_remaining"] = years_until_next.where(
-            years_until_next.notna(),
-            years_to_snapshot.where(snapshot_valid),
-        )
-        tm["contract_years_remaining"] = tm["contract_years_remaining"].clip(lower=0, upper=6)
-
-        # Quick diagnostic so we can see coverage after the fix.
-        n_total = len(tm)
-        n_from_next = years_until_next.notna().sum()
-        n_from_snap = (years_until_next.isna() & years_to_snapshot.notna() & snapshot_valid).sum()
-        n_missing = tm["contract_years_remaining"].isna().sum()
-        print(
-            f"contract_years_remaining: next-transfer={n_from_next}, "
-            f"snapshot-fallback={n_from_snap}, missing={n_missing} / {n_total} "
-            f"(populated {100*(n_total-n_missing)/n_total:.1f}%)"
-        )
-    else:
-        tm["contract_years_remaining"] = np.nan
 
     # ------------------------------------------------------------------
     # Club-level features
@@ -547,16 +501,6 @@ def main():
     # Progressive passing per 90
     merged["progressive_passing_per_90"] = merged["progressive_passes"].fillna(0) / (merged["nineties"] + 1)
     
-    # 9. CONTRACT & STABILITY
-    print("✓ Creating contract features...")
-    
-    # Players with long contracts are more stable/valuable
-    merged["has_long_contract"] = (merged["contract_years_remaining"] >= 3).astype(int)
-    
-    # Contract expiration urgency (players expiring soon might be cheaper)
-    merged["contract_expiring_soon"] = (merged["contract_years_remaining"] <= 1).astype(int)
-    merged["contract_expiring_soon"] = merged["contract_expiring_soon"].fillna(0)
-    
     # 10. COMPOUND SCORING FEATURES (multivariate)
     print("✓ Creating compound scoring features...")
     
@@ -600,7 +544,6 @@ def main():
         "age_at_transfer",
         "age_squared",
         "height_in_cm",
-        "contract_years_remaining",
         "position",
         "sub_position",
         "foot",
@@ -703,10 +646,6 @@ def main():
         # Passing & Creativity
         "passing_quality",
         "progressive_passing_per_90",
-        
-        # Contract & Stability
-        "has_long_contract",
-        "contract_expiring_soon",
         
         # Compound Scores
         "overall_impact",
