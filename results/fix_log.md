@@ -14,6 +14,26 @@ Every row is a full rerun of the pipeline from raw data after that fix.
 | 3. Position flags mapped to Transfermarkt labels | 5,293 / 1,413 | 0.646 | 0.678 | 0.663 | 0.672 | 0.710 | 0.736 | -0.004 | 0.005 | 0.290 |
 | 4. Contract feature removed | 5,293 / 1,413 | 0.650 | 0.681 | 0.662 | 0.674 | 0.715 | 0.742 | -0.004 | 0.005 | 0.290 |
 | 5. Point-in-time club levels | 5,293 / 1,413 | 0.800 | 0.805 | 0.787 | 0.786 | 0.808 | 0.816 | -0.004 | 0.005 | 0.290 |
+| 6. Early stopping: untuned path fixed, tested | 5,293 / 1,413 | 0.800 | 0.805 | 0.787 | 0.786 | 0.808 | 0.816 | -0.004 | 0.005 | 0.290 |
+| 7. Ridge scaling verified by test (no code change) | 5,293 / 1,413 | 0.800 | 0.805 | 0.787 | 0.786 | 0.808 | 0.816 | -0.004 | 0.005 | 0.290 |
+
+## Early stopping before / after (brief issue 1)
+
+The tuned pipeline already early-stopped on 2024, inside the training
+seasons, and refit on all training seasons; a test now checks that every
+eval_set XGBoost sees holds only 2024 rows. The untuned path set
+early_stopping_rounds with no eval_set, which XGBoost 3.1.3 rejects
+("Must have at least 1 validation dataset for early stopping"); it now uses
+the same 2024 holdout. Deliberate comparison, same tuned hyperparameters
+(src/early_stopping_check.py):
+
+| XGBoost | Early stop on 2025 test (leaky) | Early stop on 2024 (correct) |
+|---|---|---|
+| Traditional: rounds / test R squared | 932 / 0.810 | 572 / 0.808 |
+| With modern: rounds / test R squared | 966 / 0.816 | 833 / 0.816 |
+
+Early stopping on the test set would have flattered R squared by at most
+0.003 here.
 
 Contract ablation: step 3 is the run with the leaky contract feature
 (years until the next transfer, snapshot fallback for 2023+ transfers);

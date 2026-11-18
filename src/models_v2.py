@@ -653,6 +653,24 @@ def tune_xgboost(
 # MODEL TRAINING FUNCTIONS
 # ============================================================================
 
+def temporal_holdout_masks(
+    train_df: pd.DataFrame,
+    min_fit: int = 100,
+    min_eval: int = 50,
+) -> tuple[np.ndarray | None, np.ndarray | None]:
+    """Split TRAINING rows into (fit, eval) by season: eval = latest training
+    season. Returns (None, None) if either side is too small."""
+    if SEASON_COL not in train_df.columns:
+        return None, None
+    seasons = pd.to_numeric(train_df[SEASON_COL], errors="coerce")
+    eval_season = seasons.max()
+    fit_mask = (seasons < eval_season).to_numpy()
+    eval_mask = (seasons == eval_season).to_numpy()
+    if fit_mask.sum() > min_fit and eval_mask.sum() > min_eval:
+        return fit_mask, eval_mask
+    return None, None
+
+
 def train_and_evaluate_model(
     train_df: pd.DataFrame,
     test_df: pd.DataFrame,
@@ -713,38 +731,34 @@ def train_and_evaluate_model(
             model.fit(X_train, y_train)
     
     elif model_type.lower() == "xgboost":
+        # Temporal eval holdout for early stopping, taken from the TRAINING
+        # seasons only (the last one, e.g. 2024): fit on earlier seasons,
+        # early-stop on the holdout, then refit on the full training set for
+        # the discovered number of rounds. The test season is never seen.
+        X_xgb_train = X_train
+        y_xgb_train = y_train
+        X_xgb_eval = None
+        y_xgb_eval = None
+        X_xgb_refit = None
+        y_xgb_refit = None
+
+        tune_mask, eval_mask = temporal_holdout_masks(train_df)
+        if tune_mask is not None:
+            X_xgb_train = X_train[tune_mask]
+            y_xgb_train = y_train[tune_mask]
+            X_xgb_eval = X_train[eval_mask]
+            y_xgb_eval = y_train[eval_mask]
+            X_xgb_refit = X_train
+            y_xgb_refit = y_train
+            print(
+                f"  XGBoost early-stopping split: "
+                f"{tune_mask.sum()} fit / {eval_mask.sum()} eval-holdout "
+                f"(season {int(train_df.loc[eval_mask, SEASON_COL].iloc[0])}) "
+                f"/ refit on full {len(y_train)}"
+            )
+
         if tune_hyperparams:
             print(f"\nTuning XGBoost ({feature_set.value})...")
-            # Temporal eval holdout for early stopping:
-            #   tune on seasons < eval_season, early-stop on eval_season,
-            #   then refit on the full training set for the discovered number
-            #   of rounds so XGBoost gets the same data budget as Linear/RF.
-            X_xgb_train = X_train
-            y_xgb_train = y_train
-            X_xgb_eval = None
-            y_xgb_eval = None
-            X_xgb_refit = None
-            y_xgb_refit = None
-
-            if SEASON_COL in train_df.columns:
-                seasons = pd.to_numeric(train_df[SEASON_COL], errors="coerce")
-                eval_season = int(seasons.max())
-                tune_mask = (seasons < eval_season).to_numpy()
-                eval_mask = (seasons == eval_season).to_numpy()
-
-                if tune_mask.sum() > 100 and eval_mask.sum() > 50:
-                    X_xgb_train = X_train[tune_mask]
-                    y_xgb_train = y_train[tune_mask]
-                    X_xgb_eval = X_train[eval_mask]
-                    y_xgb_eval = y_train[eval_mask]
-                    X_xgb_refit = X_train
-                    y_xgb_refit = y_train
-                    print(
-                        f"  XGBoost tuning split: "
-                        f"{tune_mask.sum()} tune / {eval_mask.sum()} eval-holdout "
-                        f"(season {eval_season}) / refit on full {len(y_train)}"
-                    )
-
             model = tune_xgboost(
                 X_xgb_train,
                 y_xgb_train,
@@ -755,8 +769,9 @@ def train_and_evaluate_model(
                 n_iter=30,
             )
         else:
-            model = XGBRegressor(
-                n_estimators=1200,
+            # Previously this set early_stopping_rounds with no eval_set, which
+            # XGBoost rejects. Use the same training-season holdout instead.
+            params = dict(
                 learning_rate=0.03,
                 max_depth=4,
                 min_child_weight=10,
@@ -769,10 +784,15 @@ def train_and_evaluate_model(
                 random_state=42,
                 tree_method="hist",
                 eval_metric="rmse",
-                early_stopping_rounds=100,
-                verbose=0,
             )
-            model.fit(X_train, y_train)
+            if X_xgb_eval is None:
+                model = XGBRegressor(n_estimators=1200, **params)
+                model.fit(X_train, y_train, verbose=False)
+            else:
+                probe = XGBRegressor(n_estimators=2000, early_stopping_rounds=100, **params)
+                probe.fit(X_xgb_train, y_xgb_train, eval_set=[(X_xgb_eval, y_xgb_eval)], verbose=False)
+                model = XGBRegressor(n_estimators=probe.best_iteration + 1, **params)
+                model.fit(X_xgb_refit, y_xgb_refit, verbose=False)
     else:
         raise ValueError(f"Unknown model type: {model_type}")
 
