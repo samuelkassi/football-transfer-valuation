@@ -1,66 +1,124 @@
-# Player Market Value Prediction
+# Football transfer market valuation with machine learning
 
-End-to-end pipeline that predicts a footballer's Transfermarkt market value
-from FBref season stats + Transfermarkt transfer/club context, with three
-algorithms (Ridge / Random Forest / XGBoost) trained on two feature sets
-(traditional only / traditional + modern).
+Predicts a footballer's Transfermarkt market value at the moment of a transfer
+from the previous season's FBref statistics and the strength of the two clubs
+involved. Transfers from ten leagues (2018 to 2025) are joined to FBref player
+seasons, and a 3 x 2 factorial study compares Ridge, Random Forest and XGBoost,
+each with and without modern metrics such as xG, on a time-aware split: train
+on 2018 to 2024, test on the 1,413 transfers of 2025. Final-year project
+(Durham, 2025 to 2026), cleaned up and audited after submission.
 
-## Layout
+## Headline result
 
-```
-src/                 source modules
-  transfermarkt.py   raw csv  -> tm_*.parquet                (intermediate)
-  fbref.py           raw csv  -> fbref_player_season_stats.parquet
-  build_dataset.py   intermediate -> data/final/player_market_value_dataset.parquet
-  models_v2.py       trains 6 models, writes ./models/*.joblib
-  club_lookup.py     fuzzy club name -> log1p(median MV) feature for predict
-  predict.py         scores theoretical players using all 6 saved bundles
-data/
-  raw/               source CSVs (transfermarkt + fbref)
-  intermediate/      parquet outputs of transfermarkt.py / fbref.py
-  final/             output of build_dataset.py
-models/              joblib bundles produced by models_v2.py
-experiment.ipynb     interactive notebook for scoring theoretical players
-requirements.txt     pip dependencies
-```
+**XGBoost with modern metrics: test R squared 0.816 on 1,413 held-out 2025
+transfers, against 0.290 for a per-league-mean baseline.** The median
+absolute error is about EUR 1.1m, and 77.7% of predictions land within a
+factor of two of the real value.
 
-## Setup (any machine)
+| Test R squared (2025) | Traditional stats | With modern metrics |
+|---|---|---|
+| Ridge | 0.799 | 0.804 |
+| Random Forest | 0.787 | 0.786 |
+| XGBoost | 0.808 | **0.816** |
+
+Baselines: global mean -0.004, per-position mean 0.005, per-league mean 0.290.
+Full metrics (MAE, RMSE, per position, SHAP) are in
+[results/metrics.md](results/metrics.md), and the effect of every fix is in
+[results/fix_log.md](results/fix_log.md).
+
+![Feature importance](results/feature_importance.png)
+
+## Pipeline
+
+- **Load** (`src/load.py`): Transfermarkt transfers, 496,606 dated valuations and
+  player profiles; the FBref player-season file.
+- **Clean** (`src/clean.py`): drop the FIFA columns, rebuild season totals from
+  per-90 values, remove duplicate rows, turn inf into NaN, and drop rows with more
+  matches or minutes than a team can play in that league season.
+- **Merge** (`src/merge.py`): join each transfer to the FBref season before it
+  on Unicode-normalised name, season and birth year (within one year); drop
+  ambiguous namesakes. 7,741 of 54,698 transfers match (14.15%).
+- **Features** (`src/features.py`): age, club level of both clubs from
+  valuations dated in the 12 months before the transfer, position flags and
+  position x stat interactions, per-90 and efficiency features. 6,706 transfers
+  with 450+ minutes remain.
+- **Train** (`src/train.py`): the six cells, tuned by 5-fold random search on
+  the training seasons; XGBoost early-stops on 2024 and refits on all training
+  seasons, so 2025 is never seen before scoring.
+- **Evaluate** (`src/evaluate.py`): baselines, metrics, per-position table, SHAP.
+
+## How to run
 
 ```bash
 python -m venv .venv
-
-# Windows:
-.venv\Scripts\activate
-# macOS / Linux:
-source .venv/bin/activate
-
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
+
+# put the four source CSVs in data/raw/ as described in data/README.md
+python -m src.train                # raw data -> dataset -> 6 models -> results/
+python -m src.train --skip-data    # retrain and report from data/final only
+python -m pytest                   # 24 tests, synthetic data only, a few seconds
 ```
 
-## Running the pipeline
+The full run takes 15 to 20 minutes on a laptop, almost all of it hyperparameter
+search. Seeds are fixed and versions pinned, so the same data gives the same
+numbers. `python -m src.early_stopping_check` reruns the early-stopping
+comparison, and `python notebooks/build_walkthrough.py` rebuilds the
+[walkthrough notebook](notebooks/walkthrough.ipynb).
 
-The intermediate parquets, the final dataset, and the trained models are all
-already included, so you can jump straight to step 4 if you only want to use
-the model. To rebuild everything from raw CSVs:
+## Debugging story
 
-```bash
-python src/transfermarkt.py    # 1. raw -> tm_*.parquet
-python src/fbref.py            # 2. raw -> fbref_player_season_stats.parquet
-python src/build_dataset.py    # 3. intermediate -> final dataset
-python src/models_v2.py        # 4. train + save 6 (preprocessor, model) bundles
-```
+The submitted project reported XGBoost R squared 0.72. Auditing the code before
+publishing it found these problems, each fixed in its own commit and rerun:
 
-Step 4 takes the longest (~10–20 min) because of `RandomizedSearchCV` tuning.
+1. **Namesakes merged in the source data.** The FBref file has one row per name
+   per season across all leagues, so different players called "Fernando" were
+   summed into one row with 89 matches. Joining on name alone attached their
+   stats to the wrong transfers. Fix: join on name, season and birth year, drop
+   ambiguous matches and physically impossible rows. R squared rose (0.718 to
+   0.737) because the noise was removed.
+2. **Position flags always zero (silent bug).** The code checked for FBref codes
+   such as "GK" and "FW", but the column held Transfermarkt labels ("Goalkeeper",
+   "Attack"). All 4 flags and 20 interaction features were zero in every row.
+3. **Contract feature built from the future (silent bug).** It first compared a
+   2025 contract snapshot with transfers back to 2018; the replacement used the
+   date of the player's next transfer, which is unknown at transfer time, and
+   was built differently for training rows (81% from the next transfer) and test
+   rows (73% from the snapshot). No point-in-time contract data exists, so the
+   feature was removed. Removing it did not lower the score.
+4. **Club strength measured with today's squads.** `current_club_id` in the
+   valuations is the club at scrape time, constant across each player's history,
+   so a club's 2019 level was built from its 2025 squad. Rebuilding club spells
+   from the transfer history and using only valuations from the 12 months before
+   each transfer lifted R squared from 0.742 to 0.816. To rule out leakage, the
+   window was moved back a full year: the score barely changed (Ridge 0.798 vs
+   0.796).
+5. **Early stopping.** The tuned path already early-stopped on 2024, not on the
+   test season; a test now checks this. The untuned path could not run at all
+   (early stopping with no validation set) and was fixed. Early-stopping on the
+   test set instead would have added at most 0.003.
 
-## Scoring a theoretical player
+## Limitations
 
-After step 4 has produced the bundles in `./models/`:
+- **Coverage.** Only 14% of Transfermarkt transfers match an FBref season, so the
+  model covers players with recent minutes in the ten leagues (Premier League,
+  La Liga, Bundesliga, Serie A, Ligue 1, Eredivisie, Primeira Liga, Belgian Pro
+  League, Super Lig, MLS), not the wider market.
+- **Target.** The target is Transfermarkt's market value, a crowd estimate, not
+  the fee paid. The model learns how Transfermarkt values players.
+- **Club levels.** Club strength is the strongest signal. It can only use
+  valuations of players with a recorded transfer (32% of valuations).
+- **Namesakes.** Rows where two namesakes stay under the match and minute caps
+  cannot be detected.
+- **One test season.** Results rest on a single 2025 season.
 
-```bash
-jupyter notebook experiment.ipynb
-```
+## Next steps
 
-Edit the `player` dict in cell 3 and re-run that cell; the notebook prints
-predicted euro values from all six (algorithm × feature-set) combinations.
-Cell 6 sweeps a single input (default: age) so you can see how predictions
-move along that axis.
+- Compare predicted value with the fees actually paid (1,996 of the 6,706 transfers record a fee above zero)
+  to find which clubs and leagues pay over the odds.
+- Test the frozen model on 2026 transfers.
+
+## Data
+
+Not included: see [data/README.md](data/README.md) for the two Kaggle sources,
+the snapshot hashes and the expected layout.
