@@ -1,0 +1,9 @@
+# Curated requirements for the player-market-value pipeline.
+# Lower bounds are conservative; pip will pick the latest compatible release.
+pandas>=2.0
+numpy>=1.24
+scikit-learn>=1.3
+xgboost>=2.0
+joblib>=1.3
+pyarrow>=14.0
+notebook>=7.0
