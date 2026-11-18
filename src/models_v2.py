@@ -892,6 +892,10 @@ def main(test_season: int = TEST_SEASON_DEFAULT, tune_hyperparams: bool = True) 
     # Print comprehensive summary
     print("\n\n")
     comparison.summary()
+
+    # Trivial baselines on the same split, for context
+    from baselines import print_baselines
+    print_baselines(df, test_season)
     
     # Print research question comparisons
     print("\n\n")
