@@ -3,8 +3,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import models_v2
-from models_v2 import FeatureSet, SEASON_COL, TARGET_COL, temporal_holdout_masks
+from src import train as train_mod
+from src.train import FeatureSet, SEASON_COL, TARGET_COL, temporal_holdout_masks
 
 
 def synthetic_frame(seed: int = 0) -> pd.DataFrame:
@@ -39,22 +39,22 @@ def test_holdout_is_last_training_season():
 def test_xgboost_never_sees_test_season(monkeypatch, tune):
     """Record every eval_set passed to XGBoost and check it holds only 2024 rows."""
     seen_eval_sizes = []
-    real_fit = models_v2.XGBRegressor.fit
+    real_fit = train_mod.XGBRegressor.fit
 
     def spy_fit(self, X, y, *args, eval_set=None, **kwargs):
         if eval_set is not None:
             seen_eval_sizes.extend(len(ys) for _, ys in eval_set)
         return real_fit(self, X, y, *args, eval_set=eval_set, **kwargs)
 
-    monkeypatch.setattr(models_v2.XGBRegressor, "fit", spy_fit)
+    monkeypatch.setattr(train_mod.XGBRegressor, "fit", spy_fit)
     if tune:  # keep the search tiny
-        real_tune = models_v2.tune_xgboost
-        monkeypatch.setattr(models_v2, "tune_xgboost",
+        real_tune = train_mod.tune_xgboost
+        monkeypatch.setattr(train_mod, "tune_xgboost",
                             lambda *a, **k: real_tune(*a, **{**k, "n_iter": 2}))
 
     df = synthetic_frame()
     train, test = df[df[SEASON_COL] < 2025], df[df[SEASON_COL] == 2025]
-    models_v2.train_and_evaluate_model(train, test, "xgboost", FeatureSet.TRADITIONAL,
+    train_mod.train_and_evaluate_model(train, test, "xgboost", FeatureSet.TRADITIONAL,
                                        tune_hyperparams=tune)
 
     n_2024 = int((train[SEASON_COL] == 2024).sum())

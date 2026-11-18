@@ -1,22 +1,15 @@
-from pathlib import Path
+"""Clean the FBref half of the source CSV into one row per player-season."""
+from __future__ import annotations
+
 import re
+
 import numpy as np
 import pandas as pd
 
-# directories which store raw and intermediate data
+from .config import FBREF_STATS, INTER_DIR
+from .load import read_fbref_raw
 
-RAW_DIR = Path("data/raw/fbref")
-OUT_DIR = Path("data/intermediate")
-OUT_DIR.mkdir(parents=True, exist_ok=True)
-OUT_PATH = OUT_DIR / "fbref_player_season_stats.parquet"
-
-# Single-source input file. It ships with an EAFC/FIFA merge glued on, which
-# we drop below -- we only want the FBref half. Covers 10 leagues across
-# seasons 2017-18 -> 2024-25 (2024-25 is partial for some leagues).
-# The legacy cleaned_YYYY-YY.csv files in this folder are no longer read.
-SOURCE_FILE = RAW_DIR / "fifa_fbref_merged.csv"
-
-# FIFA/EAFC columns (0-34) + the name_parts junk column -- all dropped.
+# FIFA/EAFC columns glued onto the source, plus a junk helper column: dropped.
 FIFA_COLS = [
     "fifa_version", "short_name", "long_name", "player_positions", "overall",
     "potential", "value_eur", "wage_eur", "age_fifa", "height_cm", "weight_kg",
@@ -28,22 +21,7 @@ FIFA_COLS = [
     "goalkeeping_speed", "born_fifa", "name_parts",
 ]
 
-# The 10 leagues we keep. Süper Lig replaces the unavailable Championship.
-LEAGUES_KEEP = {
-    "ENG-Premier League",
-    "ESP-La Liga",
-    "GER-Bundesliga",
-    "ITA-Serie A",
-    "FRA-Ligue 1",
-    "USA-MLS",
-    "NED-Eredivisie",
-    "POR-Primeira Liga",
-    "BEL-Jupiler Pro League",
-    "TUR-Super Lig",
-}
-
-# fbref league code -> human-readable comp name (matches the old `comp` column
-# values the downstream code already knows how to normalise).
+# FBref league code -> league name used everywhere downstream.
 LEAGUE_CODE_TO_COMP = {
     "ENG-Premier League":     "Premier League",
     "ESP-La Liga":            "La Liga",
@@ -56,6 +34,7 @@ LEAGUE_CODE_TO_COMP = {
     "BEL-Jupiler Pro League": "Jupiler Pro League",
     "TUR-Super Lig":          "Super Lig",
 }
+LEAGUES_KEEP = set(LEAGUE_CODE_TO_COMP)
 
 # Most league matches one team can play in a season, over 2017-18 to 2024-25,
 # including end-of-season play-offs that FBref counts. Upper bounds on purpose:
@@ -77,8 +56,7 @@ LEAGUE_MAX_MATCHES = {
     "MLS":                40,
 }
 
-# Per-90 columns in the source -> pipeline "total" column names we synthesise
-# by multiplying the per-90 by Playing Time_90s. Counts are rounded.
+# Per-90 columns -> season totals (per-90 x 90s played, rounded).
 PER90_TO_TOTAL = {
     "Per 90 Minutes_Gls":               "goals",
     "Per 90 Minutes_Ast":               "assists",
@@ -98,21 +76,15 @@ PER90_TO_TOTAL = {
 }
 
 
-# helper functions
-
-# used to normalise column names
 def to_snake(s: str) -> str:
-    s = s.strip()
-    s = s.replace("%", "pct")
-    s = s.replace("&", "and")
-    s = s.replace("/", "_per_")
-    s = re.sub(r"[^\w\s]", "", s)   # drop punctuation
-    s = re.sub(r"\s+", "_", s)      # spaces -> underscore
+    s = s.strip().replace("%", "pct").replace("&", "and").replace("/", "_per_")
+    s = re.sub(r"[^\w\s]", "", s)
+    s = re.sub(r"\s+", "_", s)
     return s.lower()
 
 
-# returns start and end year from a season string like "2023-2024"
 def parse_season_years(season_val: str) -> tuple[int | None, int | None]:
+    """'2023-2024' -> (2023, 2024)."""
     if pd.isna(season_val):
         return (None, None)
     m = re.match(r"^\s*(\d{4})\s*-\s*(\d{4})\s*$", str(season_val))
@@ -121,33 +93,21 @@ def parse_season_years(season_val: str) -> tuple[int | None, int | None]:
     return (int(m.group(1)), int(m.group(2)))
 
 
-# converts the compact season encoding in the new source ("2324") to the
-# "2023-2024" string the rest of the pipeline expects.
-def season_int_to_str(s) -> str:
+def season_int_to_str(s) -> str | None:
+    """Compact source encoding '2324' -> '2023-2024'."""
     if pd.isna(s):
         return None
     s = int(s)
-    start = 2000 + s // 100
-    end = 2000 + s % 100
-    return f"{start}-{end}"
+    return f"{2000 + s // 100}-{2000 + s % 100}"
 
 
-def main():
-    if not SOURCE_FILE.exists():
-        raise FileNotFoundError(f"Source file not found: {SOURCE_FILE.resolve()}")
-
-    df = pd.read_csv(SOURCE_FILE, low_memory=False)
-    print(f"Loaded {SOURCE_FILE.name}: shape={df.shape}")
-
-    # 1) drop the FIFA/EAFC block + junk helper col
+def clean_fbref(df: pd.DataFrame) -> pd.DataFrame:
     df = df.drop(columns=[c for c in FIFA_COLS if c in df.columns])
 
-    # 2) filter to the 10 leagues we want (defensive; source already only has these 10)
     before = len(df)
     df = df[df["league"].isin(LEAGUES_KEEP)].copy()
     print(f"After league filter: {df.shape} (dropped {before - len(df)})")
 
-    # 3) rename identity / playing-time columns to match the legacy schema
     df = df.rename(columns={
         "Playing Time_MP":     "Matches Played",
         "Playing Time_Starts": "Starts",
@@ -157,64 +117,45 @@ def main():
         "age_fbref":           "age",
         "born_fbref":          "born",
     })
-
-    # 4) season "2324" -> "2023-2024" so parse_season_years still works
     df["season"] = df["season"].apply(season_int_to_str)
-
-    # 5) comp column (human-readable league name) derived from the code column
     df["comp"] = df["league"].map(LEAGUE_CODE_TO_COMP)
 
-    # 6) synthesise totals from per-90 * 90s, rounded (counts must be discrete)
     for per90_col, total_col in PER90_TO_TOTAL.items():
-        if per90_col in df.columns:
-            df[total_col] = (df[per90_col] * df["nineties"]).round()
-        else:
-            df[total_col] = pd.NA
+        df[total_col] = (df[per90_col] * df["nineties"]).round() if per90_col in df.columns else pd.NA
 
-    # 7) expose goals_p_90 / assists_p_90 under the names the pipeline expects
-    df = df.rename(columns={
-        "Per 90 Minutes_Gls": "goals_p_90",
-        "Per 90 Minutes_Ast": "assists_p_90",
-    })
+    df = df.rename(columns={"Per 90 Minutes_Gls": "goals_p_90", "Per 90 Minutes_Ast": "assists_p_90"})
 
-    # 8) season start / end years for downstream joins
     season_years = df["season"].apply(parse_season_years)
     df["season_start_year"] = season_years.apply(lambda x: x[0])
     df["season_end_year"] = season_years.apply(lambda x: x[1])
 
-    # 9) snake_case everything else so downstream code sees consistent names
-    rename_map = {c: to_snake(c) for c in df.columns}
-    df = df.rename(columns=rename_map)
+    df = df.rename(columns={c: to_snake(c) for c in df.columns})
 
-    # 10) dedupe on (player, squad, comp, season) keeping the row with the
-    #     most minutes -- same key as before but stronger "keep" rule.
-    key_cols = [c for c in ["player", "squad", "comp", "season"] if c in df.columns]
-    if key_cols:
-        df = df.sort_values("minutes", ascending=False, na_position="last")
-        df = df.drop_duplicates(subset=key_cols, keep="first")
+    # One row per (player, squad, league, season), keeping the most minutes.
+    # The source repeats an FBref row once per FIFA identity it was matched
+    # to, so this also removes the FIFA-induced duplicates.
+    df = df.sort_values("minutes", ascending=False, na_position="last")
+    df = df.drop_duplicates(subset=["player", "squad", "comp", "season"], keep="first")
 
-    #     The source repeats an FBref row once per FIFA identity it was matched
-    #     to, so this dedupe also removes the FIFA-induced duplicates.
-
-    # 11) inf -> NaN (per-90 values divided by zero 90s in the source)
+    # per-90 values divided by zero 90s in the source
     num_cols = df.select_dtypes("number").columns
     n_inf = int(np.isinf(df[num_cols]).sum().sum())
     df[num_cols] = df[num_cols].replace([np.inf, -np.inf], np.nan)
     print(f"Replaced {n_inf} inf values with NaN")
 
-    # 12) drop physically impossible rows. The source keeps one row per
-    #     (name, season) across all leagues, so different players who share a
-    #     short name (e.g. "Fernando") are summed into one row. Those rows show
-    #     more matches or minutes than one team plays in a league season.
+    # The source keeps one row per (name, season) across all leagues, so
+    # different players who share a short name (e.g. "Fernando") are summed
+    # into one row. Those rows show more matches or minutes than one team
+    # plays in a league season.
     cap = df["comp"].map(LEAGUE_MAX_MATCHES)
     impossible = (df["matches_played"] > cap) | (df["minutes"] > cap * 90)
     print(f"Dropped {int(impossible.sum())} rows above the league's max matches/minutes")
-    df = df[~impossible].copy()
-
-    df.to_parquet(OUT_PATH, index=False)
-    print(f"Saved: {OUT_PATH}  shape={df.shape}")
-    print("Sample columns:", list(df.columns)[:25])
+    return df[~impossible].copy()
 
 
-if __name__ == "__main__":
-    main()
+def build_fbref() -> pd.DataFrame:
+    INTER_DIR.mkdir(parents=True, exist_ok=True)
+    df = clean_fbref(read_fbref_raw())
+    df.to_parquet(FBREF_STATS, index=False)
+    print(f"Saved: {FBREF_STATS.name} shape={df.shape}")
+    return df

@@ -2,15 +2,15 @@
 Deliberate before/after for the early-stopping leakage issue.
 
 For each feature set, XGBoost hyperparameters are tuned once on the training
-seasons (same RandomizedSearchCV as models_v2.py), then two variants are fit:
+seasons (same RandomizedSearchCV as train.py), then two variants are fit:
 
   leaky   : fit on all training seasons, early-stop on the 2025 TEST season
             (the issue raised in the brief), score on 2025.
   correct : fit on training seasons before 2024, early-stop on 2024, refit on
             all training seasons for that many rounds, score on 2025.
-            This is what models_v2.py does.
+            This is what train.py does.
 
-Run:  python src/early_stopping_check.py
+Run:  python -m src.early_stopping_check
 """
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ import pandas as pd
 from sklearn.metrics import r2_score
 from xgboost import XGBRegressor
 
-from models_v2 import (
+from .train import (
     DATA_PATH, SEASON_COL, TARGET_COL, TEST_SEASON_DEFAULT, FeatureSet,
     get_feature_cols, make_preprocessor, temporal_holdout_masks, tune_xgboost,
 )
@@ -40,7 +40,7 @@ def run(feature_set: FeatureSet, df: pd.DataFrame) -> dict:
     y_test = test_df[TARGET_COL].to_numpy()
 
     fit_mask, eval_mask = temporal_holdout_masks(train_df)
-    # same search input as models_v2.py: seasons before the 2024 holdout
+    # same search input as train.py: seasons before the 2024 holdout
     search_best = tune_xgboost(X_train[fit_mask], y_train[fit_mask])
     params = {k: v for k, v in search_best.get_params().items()
               if k in search_best.get_xgb_params() or k == "n_estimators"}

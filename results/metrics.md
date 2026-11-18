@@ -2,7 +2,7 @@
 
 Test set: 1,413 transfers in the 2025 season. Training set: 5,293 transfers in earlier seasons. Target: log(1 + Transfermarkt market value at transfer). R squared, MAE and RMSE are on that log scale; the median absolute error is in euros.
 
-Regenerate with `python src/report.py` after training.
+Regenerate with `python -m src.train` (full pipeline) or `python -m src.evaluate` (report only).
 
 ## 3 x 2 factorial, test set
 

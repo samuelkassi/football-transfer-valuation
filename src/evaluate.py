@@ -1,13 +1,14 @@
 """
-Write results/metrics.md, the SHAP plots and the per-position table from the
-saved model bundles in models/ (produced by models_v2.py).
+Baselines and the results report.
 
-Run:  python src/report.py
+Writes results/metrics.md, the SHAP plots and the per-position table from the
+saved model bundles in models/ (produced by train.py).
+
+Run on its own:  python -m src.evaluate
 """
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import joblib
 import matplotlib
@@ -15,15 +16,62 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import shap
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
-from baselines import run_baselines
-from models_v2 import DATA_PATH, MODEL_DIR, SEASON_COL, TARGET_COL, TEST_SEASON_DEFAULT
+from .config import BUILD_STATS as STATS_PATH, DATASET as DATA_PATH, MODEL_DIR, RESULTS_DIR
+from .config import SEASON_COL, TARGET_COL, TEST_SEASON as TEST_SEASON_DEFAULT
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-RESULTS_DIR = PROJECT_ROOT / "results"
-STATS_PATH = DATA_PATH.parent / "build_stats.json"
+# ---------------------------------------------------------------------------
+# Trivial baselines, same split as the models
+# ---------------------------------------------------------------------------
+# Each predicts the log market value from training-season rows only; groups
+# never seen in training fall back to the global training mean.
+BASELINE_GROUPS = {
+    "global_mean": None,
+    "position_mean": "position",
+    "league_mean": "league",
+}
+
+
+def split_train_test(df: pd.DataFrame, test_season: int = TEST_SEASON_DEFAULT):
+    df = df.copy()
+    df[SEASON_COL] = pd.to_numeric(df[SEASON_COL], errors="coerce")
+    return df[df[SEASON_COL] < test_season].copy(), df[df[SEASON_COL] == test_season].copy()
+
+
+def predict_group_mean(train_df, test_df, group_col, target_col: str = TARGET_COL) -> np.ndarray:
+    global_mean = float(train_df[target_col].mean())
+    if group_col is None:
+        return np.full(len(test_df), global_mean)
+    means = train_df.groupby(group_col, dropna=False)[target_col].mean()
+    return test_df[group_col].map(means).fillna(global_mean).to_numpy(dtype=float)
+
+
+def run_baselines(df: pd.DataFrame, test_season: int = TEST_SEASON_DEFAULT) -> pd.DataFrame:
+    train_df, test_df = split_train_test(df, test_season)
+    y_test = test_df[TARGET_COL].to_numpy()
+    rows = []
+    for name, group_col in BASELINE_GROUPS.items():
+        pred = predict_group_mean(train_df, test_df, group_col)
+        rows.append({
+            "Baseline": name,
+            "Test R²": float(r2_score(y_test, pred)),
+            "Test RMSE": float(np.sqrt(mean_squared_error(y_test, pred))),
+            "Test MAE": float(mean_absolute_error(y_test, pred)),
+        })
+    return pd.DataFrame(rows)
+
+
+def print_baselines(df: pd.DataFrame, test_season: int = TEST_SEASON_DEFAULT) -> pd.DataFrame:
+    res = run_baselines(df, test_season)
+    print(f"\n{'='*80}\nTRIVIAL BASELINES (fit on train seasons, scored on test season)\n{'='*80}\n")
+    print(res.to_string(index=False, float_format=lambda v: f"{v:.4f}"))
+    return res
+
+
+# ---------------------------------------------------------------------------
+# Report
+# ---------------------------------------------------------------------------
 
 MODELS = [("linear", "Ridge"), ("random_forest", "Random Forest"), ("xgboost", "XGBoost")]
 FEATURE_SETS = [("traditional", "Traditional"), ("with_modern", "With modern")]
@@ -65,6 +113,7 @@ def shap_outputs(bundle: dict, test_df: pd.DataFrame) -> pd.DataFrame:
     pre, model = bundle["preprocessor"], bundle["model"]
     X = pre.transform(test_df[bundle["num_cols"] + bundle["cat_cols"]])
     names = list(pre.get_feature_names_out())
+    import shap  # imported here: slow, and only needed for the report
     sv = shap.TreeExplainer(model).shap_values(X)
 
     # beeswarm, one dot per test transfer
@@ -105,7 +154,7 @@ def fmt_eur(v: float) -> str:
     return f"EUR {v / 1e6:.2f}m" if v >= 1e6 else f"EUR {v / 1e3:.0f}k"
 
 
-def main() -> None:
+def write_report() -> None:
     RESULTS_DIR.mkdir(exist_ok=True)
     df = pd.read_parquet(DATA_PATH)
     df[SEASON_COL] = pd.to_numeric(df[SEASON_COL], errors="coerce")
@@ -123,7 +172,7 @@ def main() -> None:
              f"Training set: {len(train_df):,} transfers in earlier seasons. "
              "Target: log(1 + Transfermarkt market value at transfer). "
              "R squared, MAE and RMSE are on that log scale; the median absolute error is in euros.",
-             "", "Regenerate with `python src/report.py` after training.", "",
+             "", "Regenerate with `python -m src.train` (full pipeline) or `python -m src.evaluate` (report only).", "",
              "## 3 x 2 factorial, test set", "",
              "| Model | Features | Test R squared | MAE | RMSE | Median abs. error |",
              "|---|---|---|---|---|---|"]
@@ -177,4 +226,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    write_report()

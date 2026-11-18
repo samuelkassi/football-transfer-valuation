@@ -1,7 +1,17 @@
+"""
+Train the 3 x 2 factorial (Ridge / Random Forest / XGBoost, traditional /
+with modern metrics) on a time-aware split and save one bundle per cell.
+
+Entry point for the whole pipeline:
+
+    python -m src.train               # raw CSVs -> dataset -> models -> results/
+    python -m src.train --skip-data   # reuse data/final, retrain and report
+"""
 from __future__ import annotations
 
+import argparse
+import random
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 from enum import Enum
 
@@ -14,33 +24,16 @@ from sklearn.impute import SimpleImputer
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
-from sklearn.linear_model import LinearRegression, Ridge, Lasso
+from sklearn.linear_model import LinearRegression, Ridge
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import RandomizedSearchCV
 
 from xgboost import XGBRegressor
 
+from .config import DATASET as DATA_PATH, MODEL_DIR, SEED, SEASON_COL, TARGET_COL
+from .config import TEST_SEASON as TEST_SEASON_DEFAULT
 
-# paths and other constants
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DATA_PATH = PROJECT_ROOT / "data" / "final" / "player_market_value_dataset.parquet"
-OUT_DIR = PROJECT_ROOT / "data" / "intermediate"
-OUT_DIR.mkdir(parents=True, exist_ok=True)
-
-# Directory where trained (preprocessor, model) bundles are saved so that
-# downstream scripts (src/predict.py, notebooks) can score theoretical players
-# without retraining. One joblib file per (model_type, feature_set) pair.
-MODEL_DIR = PROJECT_ROOT / "models"
-MODEL_DIR.mkdir(parents=True, exist_ok=True)
-
-TARGET_COL = "log_market_value"
-SEASON_COL = "season_end_year"
-TEST_SEASON_DEFAULT = 2025               # last season in the dataset
-
-# build_dataset.py computes:  log_market_value = np.log1p(market_value_eur_at_transfer)
-# so downstream code should invert via np.expm1. Historical default was False but
-# that was wrong; flipping to True so inverse_log_value() returns the right euro
-# amount if anything else in this file ever uses it.
+# log_market_value = np.log1p(market_value_eur_at_transfer); invert with np.expm1
 LOG_TARGET_IS_LOG1P = True
 
 
@@ -367,33 +360,6 @@ def print_feature_importances(
     print(fi_df.head(top_k).to_string(index=False))
 
 
-def save_predictions(
-    df_test: pd.DataFrame,
-    y_true: np.ndarray,
-    y_pred: np.ndarray,
-    out_path: Path,
-) -> None:
-    """Save predictions with player and transfer info"""
-    pred_df = df_test[[SEASON_COL]].copy()
-    if "player" in df_test.columns:
-        pred_df.insert(0, "player", df_test["player"].values)
-    if "transfer_date" in df_test.columns:
-        pred_df.insert(1, "transfer_date", df_test["transfer_date"].values)
-
-    pred_df["y_true_log"] = y_true
-    pred_df["y_pred_log"] = y_pred
-
-    pred_df.to_parquet(out_path, index=False)
-    print(f"\nSaved predictions: {out_path}")
-
-
-def inverse_log_value(y_log: float) -> float:
-    """Convert log-predictions back to euro values"""
-    if LOG_TARGET_IS_LOG1P:
-        return float(np.expm1(y_log))
-    return float(np.exp(y_log))
-
-
 # ============================================================================
 # MODEL PERSISTENCE
 # ============================================================================
@@ -417,17 +383,17 @@ def _extract_column_lists(preprocessor: ColumnTransformer) -> tuple[list[str], l
 
 def save_trained_bundles(
     comparison: ComparisonResults,
-    model_dir: Path = MODEL_DIR,
+    model_dir=MODEL_DIR,
     target_col: str = TARGET_COL,
-) -> list[Path]:
-    """Persist each fitted (preprocessor, model) pair so predict.py can load them.
+) -> list:
+    """Persist each fitted (preprocessor, model) pair for evaluate.py.
 
-    File name convention: ``{model_type}_{feature_set}.joblib`` — e.g.
+    File name convention: ``{model_type}_{feature_set}.joblib``, e.g.
     ``xgboost_with_modern.joblib``. Each bundle is a dict with enough metadata
     to drive inference end-to-end from a raw player-stats dict.
     """
     model_dir.mkdir(parents=True, exist_ok=True)
-    written: list[Path] = []
+    written = []
 
     for result in comparison.results:
         if result.model is None or result.preprocessor is None:
@@ -470,7 +436,7 @@ def tune_linear_regression(
     y_train: np.ndarray,
     n_iter: int = 20,
 ) -> LinearRegression:
-    """Tune Linear Regression with Ridge/Lasso regularization"""
+    """Tune a scaled Ridge regression (alpha by 5-fold random search)."""
     param_dist = {
         "ridge__alpha": np.logspace(-3, 3, 20),
     }
@@ -889,53 +855,50 @@ def run_full_comparison(
 # MAIN EXECUTION
 # ============================================================================
 
-def main(test_season: int = TEST_SEASON_DEFAULT, tune_hyperparams: bool = True) -> ComparisonResults:
-    """
-    Load data and run full comparison.
-    
-    Args:
-        test_season: Which season to use as test set
-        tune_hyperparams: Whether to use random search for hyperparameter tuning
-    
-    Returns:
-        ComparisonResults with all model results
-    """
+def set_seeds(seed: int = SEED) -> None:
+    """Every estimator and search also takes random_state=SEED explicitly."""
+    random.seed(seed)
+    np.random.seed(seed)
+
+
+def train_models(test_season: int = TEST_SEASON_DEFAULT, tune_hyperparams: bool = True) -> ComparisonResults:
+    """Train the six cells on data/final, print the comparison, save bundles."""
+    from .evaluate import print_baselines
+
+    set_seeds()
     df = pd.read_parquet(DATA_PATH)
-    
-    comparison = run_full_comparison(
-        df,
-        test_season=test_season,
-        tune_hyperparams=tune_hyperparams,
-    )
-    
-    # Print comprehensive summary
+    comparison = run_full_comparison(df, test_season=test_season, tune_hyperparams=tune_hyperparams)
+
     print("\n\n")
     comparison.summary()
-
-    # Trivial baselines on the same split, for context
-    from baselines import print_baselines
     print_baselines(df, test_season)
-    
-    # Print research question comparisons
+
     print("\n\n")
     for feature_set in [FeatureSet.TRADITIONAL.value, FeatureSet.WITH_MODERN.value]:
         comparison.compare_linear_vs_ml(feature_set)
-    
     print("\n\n")
     for model_type in ["linear", "random_forest", "xgboost"]:
         comparison.compare_traditional_vs_modern(model_type)
 
-    # Persist fitted bundles so src/predict.py can score theoretical players
-    # without retraining. One file per (model_type, feature_set) pair.
-    print(f"\n{'='*80}")
-    print(f"SAVING TRAINED BUNDLES")
-    print(f"{'='*80}")
-    print(f"Output directory: {MODEL_DIR}")
+    print(f"\n{'='*80}\nSAVING TRAINED BUNDLES to {MODEL_DIR}\n{'='*80}")
     save_trained_bundles(comparison)
-
     return comparison
 
 
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--skip-data", action="store_true", help="reuse data/final instead of rebuilding from raw")
+    parser.add_argument("--no-tune", action="store_true", help="fixed hyperparameters instead of random search")
+    args = parser.parse_args(argv)
+
+    if not args.skip_data:
+        from .features import build_all_data
+        build_all_data()
+    train_models(tune_hyperparams=not args.no_tune)
+
+    from .evaluate import write_report
+    write_report()
+
+
 if __name__ == "__main__":
-    # Run with hyperparameter tuning
-    comparison = main(tune_hyperparams=True)
+    main()
