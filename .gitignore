@@ -33,3 +33,7 @@ Thumbs.db
 # small real sample of the final modelling table (see data/README.md)
 !data/sample/
 !data/sample/*.csv
+
+# Phase 3: DuckDB file is rebuilt by analysis/build_db.py
+analysis/transfers.duckdb
+!analysis/output/*.csv
