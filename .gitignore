@@ -37,3 +37,7 @@ Thumbs.db
 # Phase 3: DuckDB file is rebuilt by analysis/build_db.py
 analysis/transfers.duckdb
 !analysis/output/*.csv
+
+# Power BI: the data CSVs ship, the workbook stays local
+analysis/powerbi/*.pbix
+!analysis/powerbi/data/*.csv
