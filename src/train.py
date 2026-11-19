@@ -879,7 +879,8 @@ def set_seeds(seed: int = SEED) -> None:
 
 
 def train_models(test_season: int = TEST_SEASON_DEFAULT, tune_hyperparams: bool = True) -> ComparisonResults:
-    """Train the six cells on data/final, print the comparison, save bundles."""
+    """Train the nine cells (six main plus three buyer-agnostic) on data/final,
+    print the comparison, save bundles."""
     from .evaluate import print_baselines
 
     set_seeds()

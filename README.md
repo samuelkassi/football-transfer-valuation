@@ -62,10 +62,16 @@ test set, seed 42; details in [results/metrics.md](results/metrics.md)):
   valuations dated in the 12 months before the transfer, position flags and
   position x stat interactions, per-90 and efficiency features. 6,706 transfers
   with 450+ minutes remain.
-- **Train** (`src/train.py`): the six cells, tuned by 5-fold random search on
-  the training seasons; XGBoost early-stops on 2024 and refits on all training
-  seasons, so 2025 is never seen before scoring.
+- **Train** (`src/train.py`): nine cells, the six main ones plus three
+  buyer-agnostic ones, tuned by 5-fold random search on the training seasons;
+  XGBoost early-stops on 2024 and refits on all training seasons, so 2025 is
+  never seen before scoring.
 - **Evaluate** (`src/evaluate.py`): baselines, metrics, per-position table, SHAP.
+- **Backtest** (`src/backtest.py`): expanding-window out-of-sample predictions,
+  one XGBoost fit per season and feature set, scored on that season.
+- **Analyse** (`analysis/`): DuckDB star schema (`build_db.py`), one SQL file
+  per question (`sql/`), CSV outputs (`output/`), Power BI export and spec
+  (`export_powerbi.py`, `POWERBI_SPEC.md`).
 
 ## How to run
 
@@ -75,13 +81,20 @@ source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
 # put the four source CSVs in data/raw/ as described in data/README.md
-python -m src.train                # raw data -> dataset -> 6 models -> results/
+python -m src.train                # raw data -> dataset -> 9 models -> results/
 python -m src.train --skip-data    # retrain and report from data/final only
-python -m pytest                   # 24 tests, synthetic data only, a few seconds
+python -m pytest                   # 30 tests, synthetic data only, a few seconds
+
+# phase 3: fees against a buyer-agnostic valuation
+python -m src.backtest             # expanding-window predictions -> data/final
+python -m analysis.build_db        # DuckDB star schema -> analysis/transfers.duckdb
+python -m analysis.run_queries     # SQL questions -> CSVs in analysis/output/
+python -m analysis.export_powerbi  # star schema CSVs for Power BI
 ```
 
-The full run takes 15 to 20 minutes on a laptop, almost all of it hyperparameter
-search. Seeds are fixed and versions pinned, so the same data gives the same
+The full training run takes 20 to 30 minutes on a laptop, almost all of it
+hyperparameter search (nine cells now: six main plus three buyer-agnostic).
+Seeds are fixed and versions pinned, so the same data gives the same
 numbers. `python -m src.early_stopping_check` reruns the early-stopping
 comparison, and `python notebooks/build_walkthrough.py` rebuilds the
 [walkthrough notebook](notebooks/walkthrough.ipynb).
@@ -132,11 +145,66 @@ publishing it found these problems, each fixed in its own commit and rerun:
   cannot be detected.
 - **One test season.** Results rest on a single 2025 season.
 
+## Who overpays: fees against a buyer-agnostic valuation
+
+The main model knows the buying club, so a fee above its prediction can simply
+mean "a rich club bought a good player". The Phase 3 analysis asks a sharper
+question: which clubs and leagues pay over the odds, and who sells cheap.
+
+**Method.** A buyer-agnostic XGBoost variant drops `to_club_level` and
+`club_level_delta` (test R squared 0.763 against 0.816 for the main model,
+[results/metrics.md](results/metrics.md)), so its prediction says what the
+player is worth regardless of who buys. An expanding window refits both
+variants per season on earlier seasons only and predicts every transfer from
+2020 to 2025 out of sample ([src/backtest.py](src/backtest.py); per-season
+check in [results/backtest_r2.md](results/backtest_r2.md)). The premium is
+ln(fee) minus the buyer-agnostic predicted log value, over 1,813 paid deals,
+in a DuckDB star schema ([analysis/build_db.py](analysis/build_db.py)); every
+number below is a CSV in [analysis/output/](analysis/output/).
+
+**Findings.**
+
+- **Buying clubs** (10+ paid deals): Barcelona top the list with a median
+  premium of +1.08 log and 90% of deals above the valuation, then Inter
+  (+1.03), Man Utd (+0.96, above the valuation on all 18 paid deals),
+  Liverpool (+0.92), Man City (+0.92), Bayern Munich (+0.90), Chelsea (+0.87),
+  Paris SG (+0.87).
+- **Buying leagues**: Premier League buyers pay a median +0.56 log, about 75%
+  above the valuation, with 80% of deals above it; Ligue 1 and Serie A follow
+  at +0.13. Eredivisie buyers pay least (-0.56), MLS second least (-0.51).
+- **Selling leagues**: MLS (-0.57) and Super Lig (-0.18) sell cheapest
+  relative to value; Premier League sells dearest (+0.31, 69% of deals above
+  the valuation).
+- **Age and position**: the premium falls monotonically with age, from +0.71
+  log under 21 (fees about double the valuation) through +0.17 at 21 to 23 and
+  +0.14 at 24 to 26, to -0.27 at 27 to 29, -0.43 at 30 to 32 and -0.47 at 33
+  and over. Midfielders are cheapest relative to value (-0.06); goalkeepers
+  cost the most over the odds (+0.28 on only 96 deals).
+- **Where the model errs** ([07_residual_by_league.csv](analysis/output/07_residual_by_league.csv)
+  and the other residual files): it underpredicts Bundesliga players by a mean
+  0.145 log and overpredicts Eredivisie ones by 0.076, and its shrinkage is
+  largest by value band: +0.51 log for players over EUR 30m, -0.45 log under
+  EUR 1m. Premiums at the extremes of the value range should therefore be
+  read within value bands, not only in the aggregate.
+
+**Limitations.** Market value is a crowd estimate, not ground truth. Fees are
+recorded for 6,187 of the 6,706 model rows, and add-ons and loan fees are not
+separated in the source. Club and league rankings need 10+ paid deals to be
+meaningful. A club's league is a proxy (its most common selling league), and
+the selling league is the league of the previous season. The Power BI report
+spec for these numbers is in [analysis/POWERBI_SPEC.md](analysis/POWERBI_SPEC.md).
+
+**CV lines.** "Compared 1,813 paid transfer fees (2020 to 2025) against an
+out-of-sample buyer-agnostic XGBoost valuation: Premier League buyers pay a
+median 75% over the odds, and the premium falls monotonically with age, from
+double the valuation under 21 to 38% below at 33+." "Shipped the analysis as a
+rebuildable DuckDB pipeline with one SQL file per question and a Power BI
+report spec."
+
 ## Next steps
 
-- Compare predicted value with the fees actually paid (1,996 of the 6,706 transfers record a fee above zero)
-  to find which clubs and leagues pay over the odds.
-- Test the frozen model on 2026 transfers.
+- Test the frozen models on 2026 transfers. Blocked until a 2025-26 FBref
+  season and 2026 fees exist in the sources.
 
 ## Data
 
