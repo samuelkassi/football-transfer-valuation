@@ -6,7 +6,9 @@ involved. Transfers from ten leagues (2018 to 2025) are joined to FBref player
 seasons, and a 3 x 2 factorial study compares Ridge, Random Forest and XGBoost,
 each with and without modern metrics such as xG, on a time-aware split: train
 on 2018 to 2024, test on the 1,413 transfers of 2025. Final-year project
-(Durham, 2025 to 2026), cleaned up and audited after submission.
+(Durham, 2025 to 2026), cleaned up and audited after submission. The submitted
+paper is in [paper/](paper/) as a PDF, with a note on what the audit found
+after submission.
 
 ## Headline result
 

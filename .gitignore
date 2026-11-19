@@ -41,3 +41,6 @@ analysis/transfers.duckdb
 # Power BI: the data CSVs ship, the workbook stays local
 analysis/powerbi/*.pbix
 !analysis/powerbi/data/*.csv
+
+# Paper: only the PDF ships, the submitted docx stays local
+paper/*.docx
