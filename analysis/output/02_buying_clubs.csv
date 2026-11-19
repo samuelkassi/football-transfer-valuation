@@ -1,0 +1,76 @@
+buying_club,club_league_proxy,paid_deals,median_premium_log,share_above_fair_value,median_fee_eur_m
+Barcelona,La Liga,10,1.083,0.9,52.5
+Inter,Serie A,21,1.026,0.81,21.0
+LOSC Lille,Ligue 1,13,1.0,0.846,8.0
+Man Utd,Premier League,18,0.962,1.0,50.1
+Bournemouth,Premier League,10,0.926,0.8,16.48
+Liverpool,Premier League,12,0.918,0.917,40.0
+Man City,Premier League,18,0.917,0.833,52.65
+Bayern Munich,Bundesliga,14,0.901,0.786,32.5
+Chelsea,Premier League,19,0.867,0.842,45.0
+Paris SG,Ligue 1,21,0.867,0.81,45.0
+Juventus,Serie A,19,0.721,0.895,22.8
+Nottm Forest,Premier League,19,0.72,0.632,8.3
+Benfica,Primeira Liga,19,0.684,0.842,15.0
+Arsenal,Premier League,21,0.68,0.81,35.0
+SSC Napoli,Serie A,19,0.663,0.684,23.0
+Aston Villa,Premier League,21,0.632,0.714,17.4
+Wolves,Premier League,19,0.617,0.789,18.0
+Sporting CP,Primeira Liga,10,0.585,0.7,8.26
+Stade Rennais,Ligue 1,23,0.561,0.696,14.0
+Newcastle,Premier League,15,0.484,0.933,30.0
+Monaco,Ligue 1,19,0.478,0.684,15.0
+West Ham,Premier League,14,0.477,0.929,31.5
+Atalanta BC,Serie A,22,0.473,0.773,13.8
+Olympique Lyon,Ligue 1,14,0.445,0.643,14.7
+Tottenham,Premier League,19,0.438,0.842,30.0
+Fenerbahce,Super Lig,19,0.436,0.632,5.6
+Leicester,Premier League,11,0.378,0.818,20.0
+FC Porto,Primeira Liga,14,0.359,0.786,4.51
+Crystal Palace,Premier League,11,0.354,0.727,15.0
+Stade Reims,Ligue 1,12,0.354,0.833,4.0
+Southampton,Premier League,10,0.352,0.7,15.35
+B. Leverkusen,Bundesliga,13,0.35,0.769,15.0
+Bor. Dortmund,Bundesliga,18,0.348,0.722,21.25
+Fiorentina,Serie A,14,0.343,0.643,10.5
+RB Leipzig,Bundesliga,20,0.277,0.7,19.75
+AC Milan,Serie A,26,0.267,0.692,15.34
+Feyenoord,Eredivisie,11,0.267,0.636,2.2
+Ajax,Eredivisie,17,0.26,0.647,8.0
+AS Roma,Serie A,18,0.25,0.556,19.25
+Bologna,Serie A,20,0.241,0.6,7.0
+PSV Eindhoven,Eredivisie,17,0.236,0.588,7.5
+Atlético Madrid,La Liga,16,0.216,0.688,26.0
+Sevilla FC,La Liga,19,0.209,0.526,11.0
+Fulham,Premier League,13,0.192,0.769,11.8
+VfL Wolfsburg,Bundesliga,14,0.184,0.571,8.0
+KRC Genk,Jupiler Pro League,10,0.162,0.6,3.63
+Marseille,Ligue 1,21,0.118,0.667,11.0
+OGC Nice,Ligue 1,17,0.041,0.529,10.0
+Burnley,Premier League,11,0.014,0.545,4.2
+Lens,Ligue 1,10,-0.017,0.5,5.5
+Sassuolo,Serie A,16,-0.039,0.5,7.38
+FC Nantes,Ligue 1,11,-0.051,0.455,4.4
+SC Braga,Primeira Liga,11,-0.059,0.273,2.1
+Trabzonspor,Super Lig,17,-0.089,0.471,2.05
+Como,Serie A,10,-0.122,0.5,4.75
+Club Brugge,Jupiler Pro League,14,-0.152,0.429,6.0
+Besiktas,Super Lig,15,-0.175,0.333,2.75
+Galatasaray,Super Lig,21,-0.183,0.429,3.5
+Udinese Calcio,Serie A,11,-0.194,0.364,5.35
+KAA Gent,Jupiler Pro League,15,-0.209,0.267,1.75
+Torino,Serie A,21,-0.292,0.333,5.2
+E. Frankfurt,Bundesliga,21,-0.293,0.333,6.5
+Genoa,Serie A,12,-0.297,0.167,3.3
+Villarreal,La Liga,10,-0.312,0.3,8.55
+Rangers,Primeira Liga,10,-0.348,0.3,3.43
+Hellas Verona,Serie A,22,-0.364,0.318,3.05
+Real Betis,La Liga,12,-0.375,0.083,8.0
+Cagliari Calcio,Serie A,14,-0.436,0.286,4.3
+VfB Stuttgart,Bundesliga,14,-0.556,0.214,4.1
+Salernitana,Serie A,10,-0.601,0.2,4.43
+FC Augsburg,Bundesliga,13,-0.667,0.308,4.0
+Twente FC,Eredivisie,12,-0.675,0.25,1.0
+1.FSV Mainz 05,Bundesliga,11,-0.778,0.182,2.3
+Getafe,La Liga,11,-0.909,0.182,3.5
+Stade Brestois,Ligue 1,10,-1.249,0.1,1.6

@@ -1,0 +1,5 @@
+position,transfers,mean_residual_log,median_residual_log,mae_log
+Goalkeeper,396,0.023,0.039,0.579
+Defender,2025,0.048,0.06,0.481
+Attack,1977,0.066,0.058,0.463
+Midfield,1708,0.067,0.084,0.485

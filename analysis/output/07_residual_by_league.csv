@@ -1,0 +1,11 @@
+league,transfers,mean_residual_log,median_residual_log,mae_log
+Eredivisie,722,-0.076,-0.075,0.48
+Primeira Liga,587,-0.02,-0.003,0.558
+Jupiler Pro League,620,-0.002,0.01,0.494
+MLS,100,0.059,0.103,0.543
+Serie A,986,0.07,0.067,0.454
+Super Lig,696,0.076,0.07,0.542
+Ligue 1,717,0.11,0.12,0.432
+Premier League,555,0.118,0.172,0.487
+La Liga,590,0.122,0.101,0.456
+Bundesliga,533,0.145,0.098,0.448

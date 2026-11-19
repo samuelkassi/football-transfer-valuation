@@ -70,7 +70,9 @@ WHERE transfer_fee_eur > 0;
 
 
 def build_db(predictions: Path = PREDICTIONS, db_path: Path = DB_PATH) -> None:
-    fact = pd.read_parquet(predictions).reset_index().rename(columns={"index": "transfer_id"})
+    fact = pd.read_parquet(predictions).reset_index().rename(
+        columns={"index": "transfer_id", "market_value_eur_at_transfer": "market_value_eur"}
+    )
 
     db_path.parent.mkdir(parents=True, exist_ok=True)
     con = duckdb.connect(str(db_path))
