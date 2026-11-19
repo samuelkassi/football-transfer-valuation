@@ -225,6 +225,24 @@ def write_report() -> None:
             lines.append(f"| {mlab} | {flab} | {c['r2']:.3f} | {c['mae']:.3f} | {c['rmse']:.3f} | "
                          f"{fmt_eur(c['median_abs_err_eur'])} |")
 
+    # buyer-agnostic variant (Phase 3): the same models and tuning without
+    # to_club_level and club_level_delta, so the prediction ignores the buyer
+    ba = {m: joblib.load(MODEL_DIR / f"{m}_buyer_agnostic.joblib") for m, _ in MODELS}
+    ba_preds = {m: predict(b, test_df) for m, b in ba.items()}
+    lines += ["", "## Buyer-agnostic variant (Phase 3)", "",
+              "Same tuning and split, but `to_club_level` and `club_level_delta` are "
+              "removed, so the prediction is what the player is worth regardless of who "
+              "buys. `from_club_level` stays: the selling club's level is fair context. "
+              "A fee above this prediction is an overpayment rather than a rich-buyer "
+              "effect the main model already expects.",
+              "",
+              "| Model | With modern R squared | Buyer-agnostic R squared | Difference |",
+              "|---|---|---|---|"]
+    for m, mlab in MODELS:
+        r2_main = cells[(m, "with_modern")]["r2"]
+        r2_ba = metrics(y, ba_preds[m])["r2"]
+        lines.append(f"| {mlab} | {r2_main:.3f} | {r2_ba:.3f} | {r2_ba - r2_main:+.3f} |")
+
     base = run_baselines(df)
     lines += ["", "## Trivial baselines (fit on training seasons)", "",
               "| Baseline | Test R squared | MAE | RMSE |", "|---|---|---|---|"]

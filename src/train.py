@@ -157,12 +157,21 @@ ENGINEERED_STATS = [
 ALL_STATS = TRADITIONAL_STATS + MODERN_STATS
 ALL_STATS_WITH_ENGINEERED = TRADITIONAL_STATS + MODERN_STATS + ENGINEERED_STATS
 
+# Phase 3: buyer-agnostic variant. The buyer-side club features are removed
+# so the prediction says what the player is worth regardless of who buys; a
+# fee above it is then an overpayment, not a rich-buyer effect the model
+# already expects. from_club_level stays: the selling club's level is fair
+# context for a player's value.
+BUYER_SIDE_COLUMNS = ("to_club_level", "club_level_delta")
+BUYER_AGNOSTIC_STATS = [c for c in ALL_STATS if c not in BUYER_SIDE_COLUMNS]
+
 
 class FeatureSet(Enum):
     """Feature sets for comparing research questions"""
     TRADITIONAL = "traditional"
     WITH_MODERN = "with_modern"
     WITH_ENGINEERED = "with_engineered"  # Phase 2: engineered features
+    BUYER_AGNOSTIC = "buyer_agnostic"    # Phase 3: no buyer-side club features
 
 
 # ============================================================================
@@ -219,8 +228,14 @@ class ComparisonResults:
             print(f"  Test MAE:  {result.test_mae:.4f} | Train MAE:  {result.train_mae:.4f}")
     
     def compare_traditional_vs_modern(self, model_name: str) -> None:
-        """Compare impact of modern stats for a specific model"""
-        subset = [r for r in self.results if r.model_name == model_name]
+        """Compare impact of modern stats for a specific model.
+
+        Only the two main feature sets are compared; the buyer-agnostic
+        variant gets its own table in results/metrics.md.
+        """
+        subset = [r for r in self.results
+                  if r.model_name == model_name
+                  and r.feature_set in ("traditional", "with_modern")]
         print(f"\n{'='*80}")
         print(f"RESEARCH Q2: Traditional vs Modern Stats ({model_name})")
         print(f"{'='*80}")
@@ -277,7 +292,7 @@ def get_feature_cols(
     Args:
         df: Input dataframe
         target_col: Target column name
-        feature_set: Which features to include (TRADITIONAL, WITH_MODERN, or WITH_ENGINEERED)
+        feature_set: Which features to include (TRADITIONAL, WITH_MODERN, WITH_ENGINEERED, BUYER_AGNOSTIC)
     
     Returns:
         (numeric_cols, categorical_cols)
@@ -296,6 +311,8 @@ def get_feature_cols(
         allowed_stats = set(TRADITIONAL_STATS)
     elif feature_set == FeatureSet.WITH_MODERN:
         allowed_stats = set(ALL_STATS)
+    elif feature_set == FeatureSet.BUYER_AGNOSTIC:
+        allowed_stats = set(BUYER_AGNOSTIC_STATS)
     else:  # WITH_ENGINEERED
         allowed_stats = set(ALL_STATS_WITH_ENGINEERED)
     
@@ -813,10 +830,10 @@ def run_full_comparison(
         df: Input dataframe
         test_season: Which season to use as test set
         tune_hyperparams: Whether to use random search for hyperparameter tuning
-        feature_sets: List of FeatureSet enums to test (default: [TRADITIONAL, WITH_MODERN])
+        feature_sets: List of FeatureSet enums to test (default: the two main sets plus BUYER_AGNOSTIC)
     """
     if feature_sets is None:
-        feature_sets = [FeatureSet.TRADITIONAL, FeatureSet.WITH_MODERN]
+        feature_sets = [FeatureSet.TRADITIONAL, FeatureSet.WITH_MODERN, FeatureSet.BUYER_AGNOSTIC]
     
     df = df.copy()
     df[SEASON_COL] = pd.to_numeric(df[SEASON_COL], errors="coerce")

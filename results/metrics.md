@@ -15,6 +15,16 @@ Regenerate with `python -m src.train` (full pipeline) or `python -m src.evaluate
 | XGBoost | Traditional | 0.808 | 0.460 | 0.592 | EUR 1.05m |
 | XGBoost | With modern | 0.816 | 0.452 | 0.579 | EUR 1.09m |
 
+## Buyer-agnostic variant (Phase 3)
+
+Same tuning and split, but `to_club_level` and `club_level_delta` are removed, so the prediction is what the player is worth regardless of who buys. `from_club_level` stays: the selling club's level is fair context. A fee above this prediction is an overpayment rather than a rich-buyer effect the main model already expects.
+
+| Model | With modern R squared | Buyer-agnostic R squared | Difference |
+|---|---|---|---|
+| Ridge | 0.804 | 0.757 | -0.047 |
+| Random Forest | 0.786 | 0.734 | -0.051 |
+| XGBoost | 0.816 | 0.763 | -0.053 |
+
 ## Trivial baselines (fit on training seasons)
 
 | Baseline | Test R squared | MAE | RMSE |
