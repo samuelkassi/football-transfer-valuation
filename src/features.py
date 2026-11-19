@@ -20,7 +20,10 @@ MIN_MINUTES = 450
 # features). The model feature sets are chosen in train.py.
 DATASET_COLUMNS = [
     # identifiers
-    "player", "transfer_date", "season_end_year", "season_index",
+    "player", "player_id", "transfer_date", "season_end_year", "season_index",
+    # transfer context (identifiers for the Phase 3 fee analysis, not model
+    # features; train.py whitelists features, so these cannot enter a model)
+    "transfer_fee_eur", "from_club_id", "from_club_name", "to_club_id", "to_club_name",
     # target (raw; log1p added below)
     "market_value_eur_at_transfer",
     # player info
